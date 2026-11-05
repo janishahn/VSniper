@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import UTC, datetime, timedelta
 
 from vsniper.core.config import get_settings
-from vsniper.core.database import dispose_engine
+from vsniper.core.database import configure_app_logging, dispose_engine
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import SearchRecord
 from vsniper.services.maintenance_service import worker_activity
@@ -20,11 +20,7 @@ from vsniper.worker.jobs.process_deliveries import run_once as process_deliverie
 from vsniper.worker.jobs.prune_records import run_once as prune_records_once
 from vsniper.worker.jobs.scan_search import run_once
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
+configure_app_logging()
 
 _logger = logging.getLogger(__name__)
 _search_failure_counts: dict[str, int] = {}

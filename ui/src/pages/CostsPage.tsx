@@ -92,8 +92,8 @@ export function CostsPage() {
       <div className="card">
         <h3>About cost tracking</h3>
         <p className="muted">
-          Costs are calculated from token usage reported by AI provider responses using standard OpenAI tier pricing.
-          Prices are estimates - cached tokens, reasoning tokens, and regional uplifts are not broken out separately.
+          Costs are estimated from the token counts OpenAI reports, at standard-tier prices. Cached input is charged at
+          the cached rate where OpenAI publishes one.
         </p>
       </div>
     </section>

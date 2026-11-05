@@ -526,6 +526,17 @@ def _listing_images(candidate: CandidateImageInput, *, detail: str | None = None
 
 
 
+def _without_image_data(value: Any) -> Any:
+    """Copy a request payload for logging with base64 image data URLs shortened."""
+    if isinstance(value, dict):
+        return {key: _without_image_data(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_image_data(item) for item in value]
+    if isinstance(value, str) and value.startswith("data:image/"):
+        return f"{value[:30]}…({len(value)} chars)"
+    return value
+
+
 class OpenAITasteClient:
     def __init__(
         self,
@@ -558,6 +569,16 @@ class OpenAITasteClient:
         output_tokens = int(usage.get("output_tokens") or 0)
         details = usage.get("input_tokens_details") or {}
         cached_input_tokens = int(details.get("cached_tokens") or 0)
+        reasoning_tokens = int((usage.get("output_tokens_details") or {}).get("reasoning_tokens") or 0)
+        logger.info(
+            "AI usage op=%s model=%s input_tokens=%d cached_tokens=%d output_tokens=%d reasoning_tokens=%d",
+            operation,
+            model,
+            input_tokens,
+            cached_input_tokens,
+            output_tokens,
+            reasoning_tokens,
+        )
         callbacks = [callback for callback in (self.on_usage, on_usage) if callback is not None]
         for callback in callbacks:
             try:
@@ -567,6 +588,9 @@ class OpenAITasteClient:
 
     def _post(self, endpoint: str, payload: dict[str, Any], *, label: str) -> dict[str, Any]:
         model = str(payload.get("model") or "")
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("OpenAI %s request model=%s payload=%s", label, model, json.dumps(_without_image_data(payload), ensure_ascii=False))
 
         def _send() -> dict[str, Any]:
             started = perf_counter()
@@ -590,6 +614,7 @@ class OpenAITasteClient:
                     response.status_code,
                     perf_counter() - started,
                 )
+                logger.debug("OpenAI %s response model=%s body=%s", label, model, response.text)
                 return response.json()
             detail = f"OpenAI returned {response.status_code}: {response.text[:500]}"
             if _is_retryable_openai_response(response):
@@ -1114,6 +1139,17 @@ class OpenAITasteClient:
         for answer in response.get("answers") or []:
             if answer.get("type") == "predicate":
                 probabilities[str(answer.get("name"))] = float(answer.get("probability") or 0.0)
+        logger.debug(
+            "decision answers candidate=%s %s",
+            candidate.candidate_id,
+            json.dumps(
+                [
+                    {"question": q["instructions"], "probability": probabilities.get(q["name"])}
+                    for q in questions
+                ],
+                ensure_ascii=False,
+            ),
+        )
         if "alert" not in probabilities:
             raise OpenAIIntegrationError("The decision model refused or omitted the alert decision.")
         labels = [
@@ -1126,8 +1162,10 @@ class OpenAITasteClient:
             for index, penalty in enumerate(taste_profile.dislikes_or_penalties[:MAX_CONCERN_QUESTIONS])
             if probabilities.get(f"concern_{index}", 0.0) >= LABEL_PROBABILITY_THRESHOLD
         ]
+        score = max(1, min(100, round(probabilities["alert"] * 100)))
+        logger.info("decision candidate=%s score=%d labels=%s concerns=%s", candidate.candidate_id, score, labels, concerns)
         return CandidateJudgment(
-            score=max(1, min(100, round(probabilities["alert"] * 100))),
+            score=score,
             explanation="",
             labels=labels,
             concerns=concerns,

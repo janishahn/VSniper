@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     )
     telegram_bot_token: str = Field(default="put-your-telegram-bot-token-here", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="put-your-telegram-chat-id-here", alias="TELEGRAM_CHAT_ID")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     openai_api_key: str = Field(default="put-your-openai-api-key-here", alias="OPENAI_API_KEY")
     # Describes reference photos, writes the taste profile and explains alerts.
     openai_vision_model: str = Field(default="gpt-6.1-terra", alias="OPENAI_VISION_MODEL")

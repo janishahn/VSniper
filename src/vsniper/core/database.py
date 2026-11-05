@@ -18,13 +18,14 @@ logger = logging.getLogger(__name__)
 
 
 def configure_app_logging() -> None:
+    level = get_settings().log_level.upper()
     logging.basicConfig(
-        level=logging.INFO,
+        level=level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%dT%H:%M:%S",
         force=True,
     )
-    logging.getLogger("vsniper").setLevel(logging.INFO)
+    logging.getLogger("vsniper").setLevel(level)
 
 
 class Base(DeclarativeBase):

@@ -1,15 +1,14 @@
 """Tests for SearchService._judge_candidates — the VLM judging pipeline.
 
 Covers the riskiest outcomes: all candidates being judged, reuse of candidates already judged
-under the current profile version, image-download failure, and a partial grid response where the
-model omits a position.
+under the current profile version, explanations for alerts only, failed decisions, and
+image-download failure.
 """
 from __future__ import annotations
 
 from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,11 +27,9 @@ from vsniper.domain.contracts import (
 )
 from vsniper.domain.scoring.service import build_judgment_trace
 from vsniper.integrations.openai.client import (
-    CandidateGridResult,
     CandidateImageInput,
     OpenAIIntegrationError,
 )
-from vsniper.services._mapping import ResolvedAiModel
 from vsniper.services.search_service import SearchService
 
 
@@ -98,6 +95,7 @@ def _seed_judged_candidate(factory, candidate_id: str, score_trace: ScoreTrace, 
 def _make_service() -> SearchService:
     service = SearchService.__new__(SearchService)
     service.settings = MagicMock()
+    service.settings.openai_decision_model = "gpt-6-luna"
     service.vinted_client = MagicMock()
     service.taste_client = MagicMock()
     service.preferences = MagicMock()
@@ -106,81 +104,15 @@ def _make_service() -> SearchService:
     return service
 
 
-def _db_settings(
-    *,
-    vlm_grid_size: int = 4,
-    vlm_judge_parallel_requests: int = 1,
-    ai_judge_provider: str = "local",
-    ai_judge_model: str = "gpt-5.4-mini",
-    local_judge_model: str = "gemma4-12b-quality",
-    ai_judge_allow_openai_fallback: bool = False,
-    ai_judge_fallback_provider: str | None = None,
-    cerebras_judge_model: str = "gemma-4-31b",
-    vlm_pack_multiple_listing_images: bool = True,
-) -> SimpleNamespace:
-    """Builds a plain settings namespace plus the registry-resolved judge/fallback models that
-    `_judge_candidates`/`_judge_image_batch` now take as explicit params (post AI-models-registry
-    refactor). `ai_judge_*` kwargs here mirror the pre-registry field names purely so existing
-    test call sites read the same; they are translated into `ResolvedAiModel`s below."""
-    fallback_provider = ai_judge_fallback_provider
-    if fallback_provider is None:
-        fallback_provider = "openai" if ai_judge_allow_openai_fallback else "none"
-
-    provider = ai_judge_provider.strip().lower()
-    model_name = local_judge_model if provider == "local" else ai_judge_model
-    judge_model = ResolvedAiModel(
-        id="model-judge",
-        provider=provider,
-        model_name=model_name,
-        reasoning_effort="low",
-        local_base_url="http://127.0.0.1:8080/v1" if provider == "local" else None,
-    )
-    if fallback_provider == "openai":
-        judge_fallback_model: ResolvedAiModel | None = ResolvedAiModel(
-            id="model-fallback",
-            provider="openai",
-            model_name=ai_judge_model,
-            reasoning_effort="low",
-            local_base_url=None,
-        )
-    elif fallback_provider == "cerebras":
-        judge_fallback_model = ResolvedAiModel(
-            id="model-fallback",
-            provider="cerebras",
-            model_name=cerebras_judge_model,
-            reasoning_effort="low",
-            local_base_url=None,
-        )
-    else:
-        judge_fallback_model = None
-
-    return SimpleNamespace(
-        vlm_grid_size=vlm_grid_size,
-        vlm_judge_parallel_requests=vlm_judge_parallel_requests,
-        vlm_pack_multiple_listing_images=vlm_pack_multiple_listing_images,
-        ai_judge_image_max_px=512,
-        judge_model=judge_model,
-        judge_fallback_model=judge_fallback_model,
-    )
-
-
-def _call_judge(service: SearchService, raw_candidates, search, taste, db_settings, **kwargs):
-    """Thin wrapper so existing tests can keep passing one `_db_settings(...)` namespace —
-    `_judge_candidates` itself now takes the registry-resolved judge/fallback models as
-    explicit params, which this pulls off the namespace `_db_settings()` attaches them to.
-    Returns just (traces, stages) — callers that don't care about persisted counts don't have
-    to unpack them."""
+def _call_judge(service: SearchService, raw_candidates, search, taste, **kwargs):
+    """Returns just (traces, stages); callers here don't need the persisted counts."""
     kwargs.setdefault("mode", "preview")
-    traces, stages, _alert_count, _queued = service._judge_candidates(
-        raw_candidates,
-        search,
-        taste,
-        db_settings,
-        judge_model=db_settings.judge_model,
-        judge_fallback_model=db_settings.judge_fallback_model,
-        **kwargs,
-    )
+    traces, stages, _alert_count, _queued = service._judge_candidates(raw_candidates, search, taste, **kwargs)
     return traces, stages
+
+
+def _judgment(score: int, explanation: str = "") -> CandidateJudgment:
+    return CandidateJudgment(score=score, explanation=explanation, labels=[], concerns=[])
 
 
 def _search(search_id: str = "search-001") -> SearchRecord:
@@ -217,31 +149,16 @@ def test_all_candidates_are_judged() -> None:
 
     jpeg = _jpeg()
 
-    def _judge(*, candidates: list[CandidateImageInput], **kwargs) -> CandidateGridResult:
-        return CandidateGridResult(
-            batch_id="b",
-            image_bytes=jpeg,
-            judgments={
-                item.candidate_id: CandidateJudgment(position="top_left", score=80, explanation="ok", labels=[], concerns=[])
-                for item in candidates
-            },
-        )
-
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
 
-    service.taste_client.judge_candidate_grid.side_effect = _judge
+    service.taste_client.judge_candidate.return_value = _judgment(80)
     with patch.object(service, "_download_candidate_image", side_effect=_download):
-        traces, stages = _call_judge(service, 
-            candidates,
-            search,
-            taste,
-            _db_settings(vlm_grid_size=4),
-        )
+        traces, stages = _call_judge(service, candidates, search, taste)
 
     judged = [c for c, s in stages.items() if s == "vlm_judged"]
     assert len(judged) == 5
-    assert service.taste_client.judge_candidate_grid.call_count == 2
+    assert service.taste_client.judge_candidate.call_count == 5
     assert len([trace for trace in traces.values() if trace.score_10 == 80]) == 5
 
 
@@ -252,37 +169,22 @@ def test_already_judged_candidate_is_reused_not_rejudged(memo_db) -> None:
 
     # item-1 was already VLM-judged under profile version 1; item-2 has never been seen.
     prior = build_judgment_trace(
-        judgment=CandidateJudgment(position="top_left", score=80, explanation="seen before", labels=[], concerns=[]),
+        judgment=_judgment(80, "seen before"),
         taste_profile=taste,
-        model="local",
-        batch_id="prior",
+        model="gpt-6-luna",
     )
     _seed_judged_candidate(memo_db, "search-001:item-1", prior)
 
     jpeg = _jpeg()
 
-    def _judge(*, candidates: list[CandidateImageInput], **kwargs) -> CandidateGridResult:
-        return CandidateGridResult(
-            batch_id="b",
-            image_bytes=jpeg,
-            judgments={
-                item.candidate_id: CandidateJudgment(position="top_left", score=30, explanation="fresh", labels=[], concerns=[])
-                for item in candidates
-            },
-        )
-
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
 
-    service.taste_client.judge_candidate_grid.side_effect = _judge
+    service.taste_client.judge_candidate.return_value = _judgment(30)
     new_judged_ids: set[str] = set()
     with patch.object(service, "_download_candidate_image", side_effect=_download) as download:
-        traces, stages = _call_judge(service, 
-            [_raw("item-1"), _raw("item-2")],
-            search,
-            taste,
-            _db_settings(vlm_grid_size=4),
-            new_judged_ids=new_judged_ids,
+        traces, stages = _call_judge(
+            service, [_raw("item-1"), _raw("item-2")], search, taste, new_judged_ids=new_judged_ids
         )
 
     # item-1 reused from its stored trace; only the unseen item-2 reached the VLM.
@@ -303,126 +205,52 @@ def test_stale_version_and_failed_candidates_are_rejudged(memo_db) -> None:
 
     # item-1 was judged under an older profile version; item-2's last attempt failed.
     stale = build_judgment_trace(
-        judgment=CandidateJudgment(position="top_left", score=80, explanation="old profile", labels=[], concerns=[]),
+        judgment=_judgment(80, "old profile"),
         taste_profile=TasteProfile(summary="", taste_prompt="x", version=1),
-        model="local",
-        batch_id="old",
+        model="gpt-6-luna",
     )
     _seed_judged_candidate(memo_db, "search-001:item-1", stale)
     _seed_judged_candidate(memo_db, "search-001:item-2", stale, grading_stage="failed")
 
     jpeg = _jpeg()
 
-    def _judge(*, candidates: list[CandidateImageInput], **kwargs) -> CandidateGridResult:
-        return CandidateGridResult(
-            batch_id="b",
-            image_bytes=jpeg,
-            judgments={
-                item.candidate_id: CandidateJudgment(position="top_left", score=50, explanation="rejudged", labels=[], concerns=[])
-                for item in candidates
-            },
-        )
-
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
 
-    service.taste_client.judge_candidate_grid.side_effect = _judge
+    service.taste_client.judge_candidate.return_value = _judgment(50)
     with patch.object(service, "_download_candidate_image", side_effect=_download):
-        traces, stages = _call_judge(service, 
-            [_raw("item-1"), _raw("item-2")],
-            search,
-            taste,
-            _db_settings(vlm_grid_size=4),
-        )
+        traces, stages = _call_judge(service, [_raw("item-1"), _raw("item-2")], search, taste)
 
     # Both were re-judged: stale-version and failed rows are never reused.
     assert traces["search-001:item-1"].score_10 == 50
     assert traces["search-001:item-2"].score_10 == 50
 
 
-def test_grid_failure_recovers_by_judging_items_individually() -> None:
+def test_only_alerts_get_an_explanation_and_failed_decisions_are_marked_failed() -> None:
     service = _make_service()
-    search = _search()
+    search = _search()  # default alert threshold 95
     taste = TasteProfile(summary="", taste_prompt="likes vintage")
-    candidates = [_raw("item-1"), _raw("item-2")]
     jpeg = _jpeg()
 
-    # The multi-item grid call fails (e.g. transient timeout); singleton retries succeed.
-    def _judge(*, taste_profile, candidates, liked_anchors, disliked_anchors, manual_note, **kwargs):
-        if len(candidates) > 1:
-            raise OpenAIIntegrationError("grid call failed")
-        cid = candidates[0].candidate_id
-        return CandidateGridResult(
-            batch_id="b",
-            image_bytes=jpeg,
-            judgments={cid: CandidateJudgment(position="top_left", score=80, explanation="ok", labels=[], concerns=[])},
-        )
-
-    service.taste_client.judge_candidate_grid.side_effect = _judge
+    def _judge(*, candidate: CandidateImageInput, **kwargs) -> CandidateJudgment:
+        if candidate.candidate_id.endswith("broken"):
+            raise OpenAIIntegrationError("decision refused")
+        return _judgment(97 if candidate.candidate_id.endswith("match") else 40)
 
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
 
+    service.taste_client.judge_candidate.side_effect = _judge
+    service.taste_client.explain_judgment.return_value = "Washed black wide-leg cargos."
     with patch.object(service, "_download_candidate_image", side_effect=_download):
-        traces, stages = _call_judge(service, 
-            candidates,
-            search,
-            taste,
-            _db_settings(vlm_grid_size=4),
-        )
+        traces, stages = _call_judge(service, [_raw("match"), _raw("miss"), _raw("broken")], search, taste)
 
-    assert stages["search-001:item-1"] == "vlm_judged"
-    assert stages["search-001:item-2"] == "vlm_judged"
-    assert traces["search-001:item-1"].score_10 == 80
-
-
-def test_local_judge_falls_back_to_openai_when_enabled() -> None:
-    service = _make_service()
-    search = _search()
-    taste = TasteProfile(summary="", taste_prompt="likes vintage")
-    candidates = [_raw("item-1")]
-    jpeg = _jpeg()
-
-    def _judge(*, candidates, ai_judge_provider, model, **kwargs):
-        if ai_judge_provider == "local":
-            assert model == "local-model"
-            raise OpenAIIntegrationError("local down")
-        assert ai_judge_provider == "openai"
-        assert model == "gpt-fallback"
-        return CandidateGridResult(
-            batch_id="fallback",
-            image_bytes=jpeg,
-            judgments={
-                candidates[0].candidate_id: CandidateJudgment(
-                    position="top_left",
-                    score=90,
-                    explanation="Fallback judged it well.",
-                    labels=["vintage"],
-                    concerns=[],
-                )
-            },
-        )
-
-    def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
-        return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
-
-    service.taste_client.judge_candidate_grid.side_effect = _judge
-    with patch.object(service, "_download_candidate_image", side_effect=_download):
-        traces, stages = _call_judge(service, 
-            candidates,
-            search,
-            taste,
-            _db_settings(
-                ai_judge_provider="local",
-                local_judge_model="local-model",
-                ai_judge_model="gpt-fallback",
-                ai_judge_allow_openai_fallback=True,
-            ),
-        )
-
-    assert stages["search-001:item-1"] == "vlm_judged"
-    assert traces["search-001:item-1"].score_10 == 90
-    assert traces["search-001:item-1"].model == "gpt-fallback"
+    assert traces["search-001:match"].decision == "alert"
+    assert traces["search-001:match"].explanation == "Washed black wide-leg cargos."
+    assert traces["search-001:miss"].explanation == ""
+    assert service.taste_client.explain_judgment.call_count == 1
+    assert stages["search-001:broken"] == "failed"
+    assert traces["search-001:broken"].explanation == "decision refused"
 
 
 def _download_service(tmp_path: Path) -> SearchService:
@@ -450,10 +278,9 @@ def test_download_rejects_html_error_page_with_image_content_type(tmp_path: Path
     assert not service._candidate_cache_path("s:item-1").exists()
 
 
-def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(memo_db) -> None:
-    """Cancellation is checked between judge-batch groups (grid_size=1 -> one candidate per
-    group here), so a cancel mid-run stops new work but must not discard what already judged
-    and persisted."""
+def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(memo_db, monkeypatch) -> None:
+    """Cancellation is checked between judge groups (one candidate per group here), so a cancel
+    mid-run stops new work but must not discard what already judged and persisted."""
     from vsniper.db.models import Search
 
     session = memo_db()
@@ -461,6 +288,7 @@ def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(m
     session.commit()
     session.close()
 
+    monkeypatch.setattr("vsniper.services.search_service.JUDGE_CONCURRENCY", 1)
     service = _make_service()
     service.telegram = MagicMock()
     service.telegram.queue_delivery.return_value = False
@@ -470,19 +298,14 @@ def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(m
     jpeg = _jpeg()
     judged_calls: list[str] = []
 
-    def _judge(*, candidates: list[CandidateImageInput], **kwargs) -> CandidateGridResult:
-        item = candidates[0]
-        judged_calls.append(item.candidate_id)
-        return CandidateGridResult(
-            batch_id="b",
-            image_bytes=jpeg,
-            judgments={item.candidate_id: CandidateJudgment(position="top_left", score=80, explanation="ok", labels=[], concerns=[])},
-        )
+    def _judge(*, candidate: CandidateImageInput, **kwargs) -> CandidateJudgment:
+        judged_calls.append(candidate.candidate_id)
+        return _judgment(80)
 
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
 
-    service.taste_client.judge_candidate_grid.side_effect = _judge
+    service.taste_client.judge_candidate.side_effect = _judge
 
     cancel_after = 1
 
@@ -494,9 +317,6 @@ def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(m
             candidates,
             search,
             taste,
-            _db_settings(vlm_grid_size=1, vlm_judge_parallel_requests=1),
-            judge_model=_db_settings().judge_model,
-            judge_fallback_model=None,
             mode="live",
             cancel_check=cancel_check,
         )

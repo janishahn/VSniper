@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { api } from '../lib/api';
-import { modelLabel } from '../lib/aiModels';
 import { clothingItemLabel } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { decodeJwtExpiry, decodeRefreshTokenExpiry, formatCookieExpiry } from '../lib/jwt';
@@ -77,9 +76,7 @@ function RunDetailsRow({ run }: { run: SearchRunRecord }) {
         <tr>
           <td colSpan={11} className="compact-expanded">
             <ul className="detail-list">
-              {run.judge_provider ? <li><strong>Judge provider:</strong> {run.judge_provider}</li> : null}
               {run.judge_model ? <li><strong>Judge model:</strong> {run.judge_model}</li> : null}
-              {run.fallback_used ? <li><strong>Fallback used:</strong> yes</li> : null}
               {run.vinted_status ? <li><strong>Vinted status:</strong> {run.vinted_status}</li> : null}
               {run.vinted_detail ? <li><strong>Vinted detail:</strong> {run.vinted_detail}</li> : null}
               <li><strong>Input tokens:</strong> {run.input_tokens.toLocaleString()}</li>
@@ -469,14 +466,11 @@ export function DashboardPage() {
           <h3>Current runtime</h3>
           <ul className="detail-list">
             <li><strong>Region:</strong> {settings.vinted_region}</li>
-            <li><strong>Judge model:</strong> {modelLabel(settings.models, settings.judge_model_id)}</li>
-            <li><strong>Judge fallback model:</strong> {modelLabel(settings.models, settings.judge_fallback_model_id)}</li>
-            <li><strong>Learn model:</strong> {modelLabel(settings.models, settings.learn_model_id)}</li>
-            <li><strong>Observation model:</strong> {modelLabel(settings.models, settings.observation_model_id)}</li>
+            <li><strong>Vision model:</strong> {settings.vision_model}</li>
+            <li><strong>Decision model:</strong> {settings.decision_model}</li>
             <li><strong>Vinted credentials:</strong> {settings.vinted_configured ? 'present' : 'missing'}</li>
             <li><strong>Telegram credentials:</strong> {settings.telegram_configured ? 'present' : 'missing'}</li>
-            <li><strong>Judge:</strong> {settings.judge_configured ? 'ready' : 'missing config'}</li>
-            <li><strong>Learning:</strong> {settings.learning_configured ? 'OpenAI ready' : 'OpenAI missing'}</li>
+            <li><strong>OpenAI key:</strong> {settings.ai_configured ? 'present' : 'missing'}</li>
           </ul>
         </div>
         <div>

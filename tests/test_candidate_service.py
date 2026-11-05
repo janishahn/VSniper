@@ -161,7 +161,7 @@ def test_prune_old_records_drops_aged_rows_and_keeps_pending(monkeypatch, tmp_pa
 
     def _usage(called_at: datetime) -> AiUsageEvent:
         return AiUsageEvent(
-            called_at=called_at, operation="judge_grid", model="m",
+            called_at=called_at, operation="judge_decision", model="m",
             input_tokens=1, output_tokens=1, cost_usd=0.1,
         )
 

@@ -7,10 +7,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import perf_counter
-from uuid import uuid4
 
 import httpx
 
@@ -18,7 +16,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from vsniper.core.config import get_settings
 from vsniper.core.database import dispose_engine, init_database, session_scope
-from vsniper.db.models import AiModelConfig as AiModelConfigRow, AiUsageEvent, AppSettingsState, Search, TasteState
+from vsniper.db.models import AiUsageEvent, AppSettingsState, Search, TasteState
 from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.domain.contracts import (
     SettingsSnapshot,
@@ -41,17 +39,6 @@ _state_lock = threading.Lock()
 _state_instance: AppState | None = None
 
 
-@dataclass(frozen=True)
-class _DefaultModelSeed:
-    """One env-derived default registry row, plus which `*_model_id` settings field it fills."""
-
-    id: str
-    provider: str
-    model_name: str
-    reasoning_effort: str
-    local_base_url: str | None
-
-
 def _extract_refresh_token_from_cookie(cookie: str) -> str:
     for part in cookie.split(";"):
         name, _, value = part.strip().partition("=")
@@ -60,81 +47,9 @@ def _extract_refresh_token_from_cookie(cookie: str) -> str:
     return ""
 
 
-def _default_model_seeds() -> tuple[list[_DefaultModelSeed], str, str | None, str, str]:
-    """Derive the default ai_models rows (deduped) plus the four settings model ids from env
-    config, mirroring the data migration's seeding logic for a brand-new (empty) database."""
-    runtime = get_settings()
-
-    judge_provider = runtime.ai_judge_provider.strip().lower()
-    judge_provider = judge_provider if judge_provider in {"openai", "cerebras", "local"} else "local"
-    judge_model_name = runtime.local_judge_model if judge_provider == "local" else runtime.ai_judge_model
-    judge_effort = runtime.ai_judge_reasoning_effort
-    judge_base_url = runtime.local_vlm_base_url if judge_provider == "local" else None
-
-    fallback_provider_raw = runtime.ai_judge_fallback_provider.strip().lower()
-    if fallback_provider_raw == "none" and runtime.ai_judge_allow_openai_fallback:
-        fallback_provider_raw = "openai"
-    fallback_provider = fallback_provider_raw if fallback_provider_raw in {"openai", "cerebras"} else None
-    if fallback_provider == "openai":
-        fallback_model_name: str | None = runtime.ai_judge_model
-    elif fallback_provider == "cerebras":
-        fallback_model_name = runtime.cerebras_judge_model
-    else:
-        fallback_model_name = None
-
-    learn_provider = "openai"
-    learn_model_name = runtime.ai_learn_model
-    learn_effort = runtime.ai_learn_reasoning_effort
-
-    observation_provider_raw = runtime.ai_observation_provider.strip().lower()
-    if observation_provider_raw == "local":
-        observation_provider = "local"
-        observation_model_name = judge_model_name if judge_provider == "local" else runtime.local_observation_model
-        observation_effort = judge_effort
-        observation_base_url = judge_base_url
-    else:
-        observation_provider = "openai"
-        observation_model_name = learn_model_name
-        observation_effort = learn_effort
-        observation_base_url = None
-
-    seeds: list[_DefaultModelSeed] = []
-    seeded: dict[tuple[str, str, str, str | None], str] = {}
-
-    def _seed(provider: str, model_name: str | None, effort: str, base_url: str | None) -> str | None:
-        if not model_name:
-            return None
-        key = (provider, model_name, effort, base_url)
-        if key in seeded:
-            return seeded[key]
-        model_id = f"model-{uuid4().hex[:8]}"
-        seeds.append(
-            _DefaultModelSeed(
-                id=model_id,
-                provider=provider,
-                model_name=model_name,
-                reasoning_effort=effort,
-                local_base_url=base_url,
-            )
-        )
-        seeded[key] = model_id
-        return model_id
-
-    judge_model_id = _seed(judge_provider, judge_model_name, judge_effort, judge_base_url)
-    judge_fallback_model_id = (
-        _seed(fallback_provider, fallback_model_name, judge_effort, None) if fallback_provider is not None else None
-    )
-    learn_model_id = _seed(learn_provider, learn_model_name, learn_effort, None)
-    observation_model_id = _seed(observation_provider, observation_model_name, observation_effort, observation_base_url)
-
-    assert judge_model_id is not None  # local_judge_model/ai_judge_model always have a default
-    assert learn_model_id is not None  # ai_learn_model always has a default
-    return seeds, judge_model_id, judge_fallback_model_id, learn_model_id, observation_model_id or judge_model_id
-
-
 def _default_settings(now: datetime) -> SettingsSnapshot:
     runtime = get_settings()
-    vinted_configured, telegram_configured, _ = integration_configuration()
+    vinted_configured, telegram_configured, ai_configured = integration_configuration()
     refresh_token = _extract_refresh_token_from_cookie(runtime.vinted_cookie)
     return SettingsSnapshot(
         vinted_region=runtime.vinted_region,
@@ -144,13 +59,9 @@ def _default_settings(now: datetime) -> SettingsSnapshot:
         telegram_chat_id=runtime.telegram_chat_id,
         vinted_configured=vinted_configured,
         telegram_configured=telegram_configured,
-        ai_configured=False,
-        judge_configured=False,
-        learning_configured=False,
-        vlm_grid_size=runtime.vlm_grid_size,
-        vlm_pack_multiple_listing_images=runtime.vlm_pack_multiple_listing_images,
-        vlm_judge_parallel_requests=runtime.vlm_judge_parallel_requests,
-        ai_judge_image_max_px=512,
+        ai_configured=ai_configured,
+        vision_model=runtime.openai_vision_model,
+        decision_model=runtime.openai_decision_model,
         alert_threshold=95,
         scan_interval_seconds=runtime.scan_interval_seconds,
         session_health=build_session_health(region=runtime.vinted_region),
@@ -240,30 +151,7 @@ class AppState:
         now = datetime.now(UTC)
         logger.info("AppState seed_if_empty started")
         with session_scope() as session:
-            settings_row_existed = session.get(AppSettingsState, 1) is not None
             settings = _default_settings(now)
-            judge_model_id: str | None = None
-            judge_fallback_model_id: str | None = None
-            learn_model_id: str | None = None
-            observation_model_id: str | None = None
-            if not settings_row_existed:
-                seeds, judge_model_id, judge_fallback_model_id, learn_model_id, observation_model_id = (
-                    _default_model_seeds()
-                )
-                for seed in seeds:
-                    session.add(
-                        AiModelConfigRow(
-                            id=seed.id,
-                            provider=seed.provider,
-                            model_name=seed.model_name,
-                            reasoning_effort=seed.reasoning_effort,
-                            local_base_url=seed.local_base_url,
-                            display_name=f"{seed.model_name} ({seed.provider.capitalize()}) · {seed.reasoning_effort}",
-                            created_at=now,
-                            updated_at=now,
-                        )
-                    )
-                session.flush()
             session.execute(
                 sqlite_insert(AppSettingsState)
                 .values(
@@ -275,14 +163,6 @@ class AppState:
                     telegram_chat_id=settings.telegram_chat_id or "",
                     telegram_configured=settings.telegram_configured,
                     error_telegram_notifications_enabled=False,
-                    judge_model_id=judge_model_id,
-                    judge_fallback_model_id=judge_fallback_model_id,
-                    learn_model_id=learn_model_id,
-                    observation_model_id=observation_model_id,
-                    vlm_grid_size=settings.vlm_grid_size,
-                    vlm_pack_multiple_listing_images=settings.vlm_pack_multiple_listing_images,
-                    vlm_judge_parallel_requests=settings.vlm_judge_parallel_requests,
-                    ai_judge_image_max_px=settings.ai_judge_image_max_px,
                     alert_threshold=settings.alert_threshold,
                     scan_interval_seconds=settings.scan_interval_seconds,
                     session_health=settings.session_health.model_dump(mode="json"),

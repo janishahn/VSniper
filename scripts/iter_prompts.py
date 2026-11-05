@@ -22,9 +22,8 @@ for raw in (ROOT / ".env").read_text().splitlines():
     if "=" in raw and not raw.lstrip().startswith("#"):
         k, v = raw.split("=", 1)
         ENV[k.strip()] = v.strip()
-API_KEY = ENV["AI_API_KEY"]
-JUDGE_MODEL = ENV.get("AI_JUDGE_MODEL", "gpt-5.4-mini")
-LEARN_MODEL = ENV.get("AI_LEARN_MODEL", "gpt-5.5")
+API_KEY = ENV["OPENAI_API_KEY"]
+LEARN_MODEL = ENV.get("OPENAI_VISION_MODEL", "gpt-6.1-terra")
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
 OBSERVE_MAX_OUTPUT_TOKENS = 12000

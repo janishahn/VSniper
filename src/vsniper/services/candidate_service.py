@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from zoneinfo import ZoneInfo
@@ -12,11 +11,11 @@ from uuid import uuid4
 import httpx
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import delete, func, select
-from sqlalchemy.orm import Session, object_session, selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from vsniper.core.config import Settings
 from vsniper.core.database import session_scope
-from vsniper.db.models import AiUsageEvent, AlertDeliveryState, AppSettingsState, Candidate, LearningSnapshotState, Search
+from vsniper.db.models import AiUsageEvent, AlertDeliveryState, Candidate, LearningSnapshotState, Search
 from vsniper.domain.contracts import (
     AiCategoryStats,
     AiCostStats,
@@ -33,7 +32,6 @@ from vsniper.integrations.openai.client import OpenAIIntegrationError, OpenAITas
 from vsniper.services._mapping import (
     candidate_to_contract,
     extract_condition,
-    resolve_ai_model,
 )
 from vsniper.services.error_service import ErrorService
 from vsniper.services.taste_service import TasteService
@@ -42,18 +40,6 @@ logger = logging.getLogger(__name__)
 
 # The app serves a single German user; "today" on the dashboard means the local calendar day.
 _LOCAL_TZ = ZoneInfo("Europe/Berlin")
-
-
-@dataclass(frozen=True)
-class _ObservationSettings:
-    """Primitive snapshot of the settings needed to run a candidate observation, captured in a
-    short read transaction so the (slow) VLM call can run without holding a DB session open."""
-
-    provider: str
-    model: str
-    reasoning_effort: str
-    image_detail: str
-    local_base_url: str | None
 
 
 class CandidateService:
@@ -101,24 +87,7 @@ class CandidateService:
         cache_path.write_bytes(response.content)
         return response.content, content_type
 
-    def _observation_settings(self, session: Session, db_settings: AppSettingsState) -> _ObservationSettings | None:
-        """Snapshot the registry-resolved observation model into plain values, callable while the
-        settings row is still attached to a session. Returns None if no observation model is
-        configured (registry row missing/unset) — caller skips the observation in that case."""
-        resolved = resolve_ai_model(session, db_settings.observation_model_id)
-        if resolved is None:
-            return None
-        return _ObservationSettings(
-            provider=resolved.provider,
-            model=resolved.model_name,
-            reasoning_effort=resolved.reasoning_effort,
-            image_detail=self.settings.ai_learn_image_detail,
-            local_base_url=resolved.local_base_url,
-        )
-
-    def _compute_candidate_observation(
-        self, candidate_model: Candidate, obs_settings: _ObservationSettings
-    ) -> dict | None:
+    def _compute_candidate_observation(self, candidate_model: Candidate) -> dict | None:
         """Run a structured observation on the candidate image, returning the JSON payload.
 
         Network + VLM only — must run *outside* any DB transaction so the SQLite write lock is
@@ -143,11 +112,6 @@ class CandidateService:
                 condition=condition,
                 description=str(norm.get("description") or ""),
                 clothing_item=cast(ClothingItem, candidate_model.clothing_item),
-                provider=obs_settings.provider,
-                model=obs_settings.model,
-                reasoning_effort=obs_settings.reasoning_effort,
-                image_detail=obs_settings.image_detail,
-                local_base_url=obs_settings.local_base_url,
             )
         except OpenAIIntegrationError as exc:
             logger.warning("Failed to describe candidate %s for learning evidence.", candidate_model.id, exc_info=True)
@@ -160,24 +124,13 @@ class CandidateService:
                     exception=exc,
                     details={
                         "candidate_id": candidate_model.id,
-                        "provider": obs_settings.provider,
-                        "model": obs_settings.model,
+                        "model": self.settings.openai_vision_model,
                     },
                     related_entity_type="candidate",
                     related_entity_id=candidate_model.id,
                 )
             return None
         return observation.model_dump(mode="json")
-
-    @staticmethod
-    def _get_settings_state(candidate_model: Candidate) -> AppSettingsState:
-        session = object_session(candidate_model)
-        if session is None:
-            raise RuntimeError("Candidate is not attached to a database session")
-        model = session.get(AppSettingsState, 1)
-        if model is None:
-            raise RuntimeError("Settings row is missing from SQLite storage")
-        return model
 
     # Sort options exposed to the API; maps to (column, descending).
     _SORT_OPTIONS = {
@@ -344,11 +297,7 @@ class CandidateService:
             same_comment = cleaned_comment is None or cleaned_comment == current_comment
             if skip_if_unchanged and same_verdict and same_comment:
                 return candidate_to_contract(candidate_model), None
-            obs_settings = (
-                self._observation_settings(session, self._get_settings_state(candidate_model))
-                if not candidate_model.ai_observation
-                else None
-            )
+            needs_observation = not candidate_model.ai_observation
             candidate_image_urls = candidate_model.image_urls or []
             already_cached = self.preferences.existing_feedback_image_paths(
                 session, candidate_id=candidate_id
@@ -356,8 +305,8 @@ class CandidateService:
 
         # Phase 2 — network/VLM, no DB transaction held.
         observation = (
-            self._compute_candidate_observation(candidate_model, obs_settings)
-            if obs_settings is not None
+            self._compute_candidate_observation(candidate_model)
+            if needs_observation
             else None
         )
         # Download the feedback-sample images here, outside the Phase 3 write txn, so the durable
@@ -539,7 +488,7 @@ class CandidateService:
         cutoff_7d = now - timedelta(days=7)
         cutoff_30d = now - timedelta(days=30)
 
-        _JUDGE_OPS = ["judge_grid"]
+        _JUDGE_OPS = ["judge_decision", "explain_judgment"]
         _LEARNING_OPS = ["describe_images", "describe_candidate", "build_taste_profile"]
 
         with session_scope() as session:

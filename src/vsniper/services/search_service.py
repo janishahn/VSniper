@@ -42,7 +42,6 @@ from vsniper.domain.scoring.service import (
     build_judgment_trace,
 )
 from vsniper.integrations.openai.client import (
-    CandidateGridResult,
     CandidateImageInput,
     OpenAIIntegrationError,
     OpenAITasteClient,
@@ -57,12 +56,10 @@ from vsniper.integrations.vinted.categories import (
     ensure_category_filter_for_clothing_item,
 )
 from vsniper.services._mapping import (
-    ResolvedAiModel,
     as_aware,
     build_session_health,
     extract_condition,
     integration_configuration,
-    resolve_ai_model,
     search_to_record,
     settings_to_contract,
 )
@@ -124,13 +121,10 @@ def _filter_blocked_brands(raw_candidates: list[dict], blocked_brands: list[str]
     ]
 
 
-def _canonical_grid_size(value: int) -> int:
-    parsed = int(value)
-    return parsed if parsed in {1, 4, 9} else 1
-
-
-def _judge_request_concurrency(value: int) -> int:
-    return max(1, min(16, int(value)))
+# Listings judged at once. Each judgment is one Decisions request; alerts add one explanation.
+JUDGE_CONCURRENCY = 8
+# Photos per listing sent to the decision model.
+MAX_LISTING_IMAGES = 4
 
 
 def _alert_threshold(value: int | None, *, fallback: int = 95) -> int:
@@ -518,7 +512,7 @@ class SearchService:
     def _download_candidate_image(self, *, candidate_id: str, image_urls: list[str]) -> CandidateImageInput | None:
         if not image_urls:
             return None
-        urls = image_urls[:4]
+        urls = image_urls[:MAX_LISTING_IMAGES]
         cache_paths = [self._candidate_cache_path(candidate_id, image_index=i) for i in range(len(urls))]
 
         usable: list[tuple[bytes, str, Path] | None] = [None] * len(urls)
@@ -547,7 +541,6 @@ class SearchService:
             image_bytes=primary_bytes,
             mime_type=primary_mime,
             extra_image_bytes=[content for content, _, _ in results[1:]],
-            cache_paths=[path for _, _, path in results],
         )
 
     @staticmethod
@@ -589,9 +582,6 @@ class SearchService:
         raw_candidates: list[dict],
         search_record: SearchRecord,
         taste_profile: TasteProfile,
-        db_settings: AppSettingsState,
-        judge_model: ResolvedAiModel,
-        judge_fallback_model: ResolvedAiModel | None,
         mode: ScanMode,
         manual_note: str = "",
         on_usage: UsageCallback | None = None,
@@ -664,7 +654,6 @@ class SearchService:
 
         if selected:
             _evict_stale_cache(self.settings.resolve_path(self.settings.cache_dir) / "candidate-images")
-            max_listing_images = 4 if getattr(db_settings, "vlm_pack_multiple_listing_images", True) else 1
             download_failed_ids: list[str] = []
             with ThreadPoolExecutor(max_workers=min(len(selected), 8)) as pool:
                 futures_in_order = [
@@ -672,7 +661,7 @@ class SearchService:
                         pool.submit(
                             self._download_candidate_image,
                             candidate_id=cid,
-                            image_urls=(raw.get("image_urls", []) or [])[:max_listing_images],
+                            image_urls=raw.get("image_urls", []) or [],
                         ),
                         cid,
                         raw,
@@ -693,7 +682,7 @@ class SearchService:
                         traces[candidate_id] = build_failed_judgment_trace(
                             title=raw["title"],
                             error="No usable candidate image was available for AI judging.",
-                            model=judge_model.model_name,
+                            model=self.settings.openai_decision_model,
                             alert_threshold=search_record.effective_alert_threshold,
                         )
                         download_failed_ids.append(candidate_id)
@@ -706,179 +695,76 @@ class SearchService:
                         pending.append(image_input)
             _persist(download_failed_ids)
 
-        batch_size = _canonical_grid_size(db_settings.vlm_grid_size)
-        batches = [pending[index : index + batch_size] for index in range(0, len(pending), batch_size)]
-        if batches:
-            judge_workers = min(len(batches), _judge_request_concurrency(db_settings.vlm_judge_parallel_requests))
-            for start in range(0, len(batches), judge_workers):
-                if cancel_check is not None and cancel_check():
-                    break
-                group = batches[start : start + judge_workers]
-                with ThreadPoolExecutor(max_workers=len(group)) as pool:
-                    futures = [
-                        pool.submit(
-                            self._judge_image_batch,
-                            items=batch,
-                            taste_profile=taste_profile,
-                            liked_anchors=liked_anchors,
-                            disliked_anchors=disliked_anchors,
-                            manual_note=manual_note,
-                            raw_by_candidate_id=raw_by_candidate_id,
-                            judge_model=judge_model,
-                            judge_fallback_model=judge_fallback_model,
-                            judge_image_detail=self.settings.ai_judge_image_detail,
-                            image_max_px=db_settings.ai_judge_image_max_px,
-                            pack_multiple_listing_images=getattr(db_settings, "vlm_pack_multiple_listing_images", True),
-                            allow_split=True,
-                            on_usage=on_usage,
-                            alert_threshold=search_record.effective_alert_threshold,
-                        )
-                        for batch in group
-                    ]
-                    for judge_future in as_completed(futures):
-                        batch_traces, batch_stages = judge_future.result()
-                        traces.update(batch_traces)
-                        stages.update(batch_stages)
-                        _persist(list(batch_traces.keys()))
+        for start in range(0, len(pending), JUDGE_CONCURRENCY):
+            if cancel_check is not None and cancel_check():
+                break
+            group = pending[start : start + JUDGE_CONCURRENCY]
+            with ThreadPoolExecutor(max_workers=len(group)) as pool:
+                futures = [
+                    pool.submit(
+                        self._judge_one,
+                        item=item,
+                        title=raw_by_candidate_id[item.candidate_id]["title"],
+                        taste_profile=taste_profile,
+                        liked_anchors=liked_anchors,
+                        disliked_anchors=disliked_anchors,
+                        manual_note=manual_note,
+                        on_usage=on_usage,
+                        alert_threshold=search_record.effective_alert_threshold,
+                    )
+                    for item in group
+                ]
+                for item, judge_future in zip(group, futures, strict=True):
+                    traces[item.candidate_id], stages[item.candidate_id] = judge_future.result()
+            _persist([item.candidate_id for item in group])
         if new_judged_ids is not None:
             new_judged_ids.update(
                 cid for cid, _ in selected if stages.get(cid) == "vlm_judged"
             )
         return traces, stages, persisted_alert_count, persisted_queued_deliveries
 
-    def _judge_image_batch(
+    def _judge_one(
         self,
         *,
-        items: list[CandidateImageInput],
+        item: CandidateImageInput,
+        title: str,
         taste_profile: TasteProfile,
         liked_anchors: list[LabeledExample],
         disliked_anchors: list[LabeledExample],
         manual_note: str,
-        raw_by_candidate_id: dict[str, dict],
-        judge_model: ResolvedAiModel,
-        judge_fallback_model: ResolvedAiModel | None,
-        judge_image_detail: str,
-        allow_split: bool,
-        image_max_px: int = 512,
-        pack_multiple_listing_images: bool = True,
-        on_usage: UsageCallback | None = None,
-        alert_threshold: int = 95,
-    ) -> tuple[dict[str, ScoreTrace], dict[str, str]]:
-        """Judge one grid of candidates, recovering from partial failures.
+        on_usage: UsageCallback | None,
+        alert_threshold: int,
+    ) -> tuple[ScoreTrace, str]:
+        """Decide one listing; alerts also get a written explanation from the vision model.
 
-        A whole-call failure or any omitted grid position is retried once by re-judging the
-        affected items as single-image grids (``allow_split`` guards against infinite recursion).
-        This stops one bad image or a transient timeout from discarding the whole batch. Any
-        primary judge failure (regardless of provider) retries once with the fallback model, if one
-        is configured.
-        """
-        traces: dict[str, ScoreTrace] = {}
-        stages: dict[str, str] = {}
-
-        def _retry_individually(failed_items: list[CandidateImageInput]) -> None:
-            for item in failed_items:
-                item_traces, item_stages = self._judge_image_batch(
-                    items=[item],
-                    taste_profile=taste_profile,
-                    liked_anchors=liked_anchors,
-                    disliked_anchors=disliked_anchors,
-                    manual_note=manual_note,
-                    raw_by_candidate_id=raw_by_candidate_id,
-                    judge_model=judge_model,
-                    judge_fallback_model=judge_fallback_model,
-                    judge_image_detail=judge_image_detail,
-                    image_max_px=image_max_px,
-                    pack_multiple_listing_images=pack_multiple_listing_images,
-                    allow_split=False,
-                    on_usage=on_usage,
-                    alert_threshold=alert_threshold,
-                )
-                traces.update(item_traces)
-                stages.update(item_stages)
-
-        def _mark_failed(failed_items: list[CandidateImageInput], error: str) -> None:
-            for item in failed_items:
-                raw = raw_by_candidate_id[item.candidate_id]
-                stages[item.candidate_id] = "failed"
-                traces[item.candidate_id] = build_failed_judgment_trace(
-                    title=raw["title"],
-                    error=error,
-                    model=judge_model.model_name,
-                    alert_threshold=alert_threshold,
-                )
-
-        def _discard_cached_images(affected: list[CandidateImageInput]) -> None:
-            # An undecodable image reached contact-sheet assembly, which means a poisoned
-            # cache file from before decode-validation. Delete it so the next cycle re-fetches.
-            for item in affected:
-                paths = item.cache_paths or [self._candidate_cache_path(item.candidate_id)]
-                for path in paths:
-                    path.unlink(missing_ok=True)
-
-        def _judge(model: ResolvedAiModel) -> CandidateGridResult:
-            return self.taste_client.judge_candidate_grid(
+        A failed call marks the listing "failed", so the next cycle judges it again."""
+        model = self.settings.openai_decision_model
+        try:
+            judgment = self.taste_client.judge_candidate(
                 taste_profile=taste_profile,
-                candidates=items,
+                candidate=item,
                 liked_anchors=liked_anchors,
                 disliked_anchors=disliked_anchors,
                 manual_note=manual_note or None,
-                model=model.model_name,
-                reasoning_effort=model.reasoning_effort,
-                image_detail=judge_image_detail,
-                ai_judge_provider=model.provider,
-                local_vlm_base_url=model.local_base_url,
-                image_max_px=image_max_px,
-                pack_multiple_listing_images=pack_multiple_listing_images,
                 on_usage=on_usage,
             )
-
-        try:
-            try:
-                result = _judge(judge_model)
-                effective_model = judge_model.model_name
-            except OpenAIIntegrationError:
-                if judge_fallback_model is None:
-                    raise
-                result = _judge(judge_fallback_model)
-                effective_model = judge_fallback_model.model_name
-        except (UnidentifiedImageError, OSError) as exc:
-            # build_contact_sheet (inside judge_candidate_grid) couldn't decode a cached image.
-            # This is not an OpenAIIntegrationError, so without this catch it would propagate
-            # out of the batch future and fail the whole scan run. Drop the poisoned cache
-            # file(s) and fall back to the same per-item recovery path.
-            _discard_cached_images(items)
-            if allow_split and len(items) > 1:
-                _retry_individually(items)
-            else:
-                _mark_failed(items, f"Candidate image could not be decoded for AI judging: {exc}")
-            return traces, stages
+            if judgment.score >= alert_threshold:
+                judgment.explanation = self.taste_client.explain_judgment(
+                    taste_profile=taste_profile,
+                    candidate=item,
+                    judgment=judgment,
+                    on_usage=on_usage,
+                )
         except OpenAIIntegrationError as exc:
-            if allow_split and len(items) > 1:
-                _retry_individually(items)
-            else:
-                _mark_failed(items, str(exc))
-            return traces, stages
-
-        item_ids = {item.candidate_id for item in items}
-        for candidate_id, judgment in result.judgments.items():
-            if candidate_id not in item_ids:
-                continue
-            stages[candidate_id] = "vlm_judged"
-            traces[candidate_id] = build_judgment_trace(
-                judgment=judgment,
-                taste_profile=taste_profile,
-                model=effective_model,
-                batch_id=result.batch_id,
-                alert_threshold=alert_threshold,
-            )
-
-        missing = [item for item in items if item.candidate_id not in traces]
-        if missing:
-            if allow_split and len(items) > 1:
-                _retry_individually(missing)
-            else:
-                _mark_failed(missing, "OpenAI returned null or omitted this grid position.")
-        return traces, stages
+            trace = build_failed_judgment_trace(title=title, error=str(exc), model=model, alert_threshold=alert_threshold)
+            return trace, "failed"
+        trace = build_judgment_trace(
+            judgment=judgment,
+            taste_profile=taste_profile,
+            model=model,
+            alert_threshold=alert_threshold,
+        )
+        return trace, "vlm_judged"
 
     def _run(self, search_id: str, *, mode: ScanMode, trigger: str = "worker") -> SearchRunResult:
         run_id: int | None = None
@@ -924,15 +810,6 @@ class SearchService:
                 return "error"
             return vinted_status
 
-        def _fallback_used() -> bool:
-            if judge_fallback_model is None:
-                return False
-            return any(
-                trace.model == judge_fallback_model.model_name
-                for candidate_id, trace in score_traces.items()
-                if stages.get(candidate_id) == "vlm_judged"
-            )
-
         # Phase 1 — read config + taste in a short transaction. expire_on_commit=False keeps the
         # loaded settings/record usable after the session closes, so no write lock is held during I/O.
         with session_scope() as session:
@@ -940,10 +817,6 @@ class SearchService:
             if search is None:
                 raise KeyError(search_id)
             db_settings = self._get_settings_state(session)
-            judge_model = resolve_ai_model(session, db_settings.judge_model_id)
-            judge_fallback_model = resolve_ai_model(session, db_settings.judge_fallback_model_id)
-            if judge_model is None:
-                raise SearchNotConfigured("No judge model is configured. Set one on the Settings page.")
             search_record = search_to_record(search, default_alert_threshold=db_settings.alert_threshold)
             search_record = search_record.model_copy(
                 update={
@@ -1011,9 +884,6 @@ class SearchService:
                 raw_candidates,
                 search_record,
                 taste_profile,
-                db_settings,
-                judge_model=judge_model,
-                judge_fallback_model=judge_fallback_model,
                 mode=mode,
                 manual_note=manual_note,
                 on_usage=_track_scan_usage,
@@ -1036,9 +906,7 @@ class SearchService:
                         new_judged_count=len(new_judged_ids),
                         alert_count=persisted_alert_count,
                         queued_delivery_count=persisted_queued_deliveries,
-                        judge_provider=judge_model.provider,
-                        judge_model=judge_model.model_name,
-                        fallback_used=_fallback_used(),
+                        judge_model=self.settings.openai_decision_model,
                         vinted_status=vinted_status,
                         vinted_detail=vinted_detail,
                         cost_usd=float(usage_totals["cost_usd"]),
@@ -1098,9 +966,7 @@ class SearchService:
                     alert_count=result.alert_candidates,
                     queued_delivery_count=result.queued_alert_deliveries,
                     failures_by_reason=failures_by_reason or None,
-                    judge_provider=judge_model.provider,
-                    judge_model=judge_model.model_name,
-                    fallback_used=_fallback_used(),
+                    judge_model=self.settings.openai_decision_model,
                     vinted_status=vinted_status,
                     vinted_detail=vinted_detail,
                     cost_usd=float(usage_totals["cost_usd"]),
@@ -1123,9 +989,7 @@ class SearchService:
                     new_judged_count=len(new_judged_ids),
                     alert_count=sum(1 for trace in score_traces.values() if trace.decision == "alert"),
                     failures_by_reason=failures_by_reason or None,
-                    judge_provider=judge_model.provider,
-                    judge_model=judge_model.model_name,
-                    fallback_used=_fallback_used(),
+                    judge_model=self.settings.openai_decision_model,
                     vinted_status=vinted_status,
                     vinted_detail=vinted_detail,
                     cost_usd=float(usage_totals["cost_usd"]),
@@ -1507,22 +1371,6 @@ class SearchService:
                 telegram_chat_id=model.telegram_chat_id,
             )
             model.telegram_configured = telegram_configured
-            if payload.judge_model_id is not None:
-                model.judge_model_id = payload.judge_model_id or None
-            if payload.judge_fallback_model_id is not None:
-                model.judge_fallback_model_id = payload.judge_fallback_model_id or None
-            if payload.learn_model_id is not None:
-                model.learn_model_id = payload.learn_model_id or None
-            if payload.observation_model_id is not None:
-                model.observation_model_id = payload.observation_model_id or None
-            if payload.vlm_grid_size is not None:
-                model.vlm_grid_size = _canonical_grid_size(payload.vlm_grid_size)
-            if payload.vlm_pack_multiple_listing_images is not None:
-                model.vlm_pack_multiple_listing_images = payload.vlm_pack_multiple_listing_images
-            if payload.vlm_judge_parallel_requests is not None:
-                model.vlm_judge_parallel_requests = _judge_request_concurrency(payload.vlm_judge_parallel_requests)
-            if payload.ai_judge_image_max_px is not None:
-                model.ai_judge_image_max_px = max(64, min(2048, int(payload.ai_judge_image_max_px)))
             if payload.alert_threshold is not None:
                 model.alert_threshold = _alert_threshold(payload.alert_threshold)
             if payload.scan_interval_seconds is not None:

@@ -2,7 +2,6 @@ import { NavLink, Outlet } from 'react-router-dom';
 import {
   BarChart3,
   CircleAlert,
-  Cpu,
   Gauge,
   HardDrive,
   LayoutGrid,
@@ -17,7 +16,6 @@ const links = [
   { to: '/searches', label: 'Searches', icon: Search },
   { to: '/candidates', label: 'Candidates', icon: LayoutGrid },
   { to: '/costs', label: 'AI Costs', icon: BarChart3 },
-  { to: '/ai-models', label: 'AI Models', icon: Cpu },
   { to: '/settings', label: 'Settings', icon: Settings },
   { to: '/storage', label: 'Storage', icon: HardDrive },
   { to: '/errors', label: 'Errors', icon: CircleAlert },

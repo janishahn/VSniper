@@ -3,25 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 MaintenanceMode = Literal["idle", "manual", "import"]
 ScanMode = Literal["preview", "live"]
 ExtractionStatus = Literal["pending", "completed", "failed"]
 DeliveryStatus = Literal["not_queued", "pending", "processing", "sent", "failed"]
-AiProvider = Literal["openai", "cerebras", "local", "openrouter"]
-GridPosition = Literal[
-    "top_left",
-    "top_center",
-    "top_right",
-    "middle_left",
-    "middle_center",
-    "middle_right",
-    "bottom_left",
-    "bottom_center",
-    "bottom_right",
-]
 TasteSampleKind = Literal["wardrobe", "offer_like", "offer_dislike", "offer_note"]
 ClothingItem = Literal["schuhe", "hosen", "obenrum_warm", "obenrum_mittel", "obenrum_kalt", "kopf"]
 
@@ -234,7 +222,6 @@ class TasteObservationCacheStats(BaseModel):
     total_image_inputs: int = 0
     cached_observations: int = 0
     fresh_observations: int = 0
-    observation_provider: AiProvider = "openai"
     observation_model: str = ""
     profile_model: str = ""
 
@@ -261,7 +248,6 @@ class SearchDraftApplyResult(BaseModel):
 
 
 class CandidateJudgment(BaseModel):
-    position: GridPosition
     score: int = Field(ge=1, le=100)
     explanation: str
     labels: list[str] = Field(default_factory=list)
@@ -286,8 +272,6 @@ class ScoreTrace(BaseModel):
     concerns: list[str] = Field(default_factory=list)
     model: str | None = None
     prompt_version: int | None = None
-    grid_batch_id: str | None = None
-    grid_position: GridPosition | None = None
     judged_at: datetime | None = None
     raw_response: dict = Field(default_factory=dict)
 
@@ -377,38 +361,6 @@ class SessionHealth(BaseModel):
     detail: str
 
 
-class AiModelConfig(BaseModel):
-    id: str
-    provider: AiProvider
-    model_name: str
-    reasoning_effort: str
-    local_base_url: str | None = None
-    display_name: str
-    created_at: datetime
-    updated_at: datetime
-
-
-class AiModelCreate(BaseModel):
-    provider: AiProvider
-    model_name: str = Field(min_length=1, max_length=128)
-    reasoning_effort: str = Field(min_length=1, max_length=32)
-    local_base_url: str | None = None
-
-    @model_validator(mode="after")
-    def _validate_local_base_url(self) -> "AiModelCreate":
-        if self.provider == "local" and not (self.local_base_url and self.local_base_url.strip()):
-            raise ValueError("local_base_url is required when provider is 'local'.")
-        return self
-
-
-class AiModelUpdate(BaseModel):
-    # provider is immutable after creation (the registry UI never lets it be changed on
-    # edit), so this is a partial update over the remaining fields only.
-    model_name: str | None = Field(default=None, min_length=1, max_length=128)
-    reasoning_effort: str | None = Field(default=None, min_length=1, max_length=32)
-    local_base_url: str | None = None
-
-
 class SettingsSnapshot(BaseModel):
     vinted_region: str
     vinted_cookie: str = ""
@@ -418,17 +370,8 @@ class SettingsSnapshot(BaseModel):
     vinted_configured: bool
     telegram_configured: bool
     ai_configured: bool
-    judge_configured: bool
-    learning_configured: bool
-    judge_model_id: str | None = None
-    judge_fallback_model_id: str | None = None
-    learn_model_id: str | None = None
-    observation_model_id: str | None = None
-    models: list[AiModelConfig] = Field(default_factory=list)
-    vlm_grid_size: int
-    vlm_pack_multiple_listing_images: bool = True
-    vlm_judge_parallel_requests: int = 1
-    ai_judge_image_max_px: int = 512
+    vision_model: str
+    decision_model: str
     alert_threshold: int = 95
     scan_interval_seconds: int = 1800
     blocked_brands: list[str] = Field(default_factory=list)
@@ -666,14 +609,6 @@ class SettingsUpdate(BaseModel):
     vinted_refresh_token: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
-    judge_model_id: str | None = None
-    judge_fallback_model_id: str | None = None
-    learn_model_id: str | None = None
-    observation_model_id: str | None = None
-    vlm_grid_size: int | None = None
-    vlm_pack_multiple_listing_images: bool | None = None
-    vlm_judge_parallel_requests: int | None = None
-    ai_judge_image_max_px: int | None = None
     alert_threshold: int | None = None
     scan_interval_seconds: int | None = None
 
@@ -684,27 +619,6 @@ class SettingsUpdate(BaseModel):
         if normalized != "de":
             raise ValueError("Only the de Vinted region is supported.")
         return normalized
-
-    @field_validator("vlm_grid_size")
-    @classmethod
-    def _validate_vlm_grid_size(cls, value: int | None) -> int | None:
-        if value is not None and value not in {1, 4, 9}:
-            raise ValueError("VLM grid size must be 1, 4, or 9.")
-        return value
-
-    @field_validator("vlm_judge_parallel_requests")
-    @classmethod
-    def _validate_vlm_judge_parallel_requests(cls, value: int | None) -> int | None:
-        if value is not None and not (1 <= value <= 16):
-            raise ValueError("VLM parallel requests must be between 1 and 16.")
-        return value
-
-    @field_validator("ai_judge_image_max_px")
-    @classmethod
-    def _validate_image_max_px(cls, value: int | None) -> int | None:
-        if value is not None and not (64 <= value <= 2048):
-            raise ValueError("Image max px must be between 64 and 2048.")
-        return value
 
     @field_validator("alert_threshold")
     @classmethod
@@ -732,19 +646,6 @@ class BlockedBrandsUpdate(BaseModel):
 class VintedBrandOption(BaseModel):
     id: str
     title: str
-
-
-class ModelTestRequest(BaseModel):
-    model_id: str
-    prompt: str = Field(min_length=1, max_length=4000)
-
-
-class ModelTestResult(BaseModel):
-    ok: bool = True
-    provider: str
-    base_url: str | None = None
-    model: str
-    answer: str
 
 
 class VintedSizesResult(BaseModel):
@@ -848,9 +749,7 @@ class SearchRunRecord(BaseModel):
     alert_count: int = 0
     queued_delivery_count: int = 0
     failures_by_reason: dict[str, int] | None = None
-    judge_provider: str | None = None
     judge_model: str | None = None
-    fallback_used: bool = False
     vinted_status: str | None = None
     vinted_detail: str | None = None
     cost_usd: float = 0.0

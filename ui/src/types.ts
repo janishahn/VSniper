@@ -156,7 +156,6 @@ export type TasteRecomputeResult = {
     total_image_inputs: number;
     cached_observations: number;
     fresh_observations: number;
-    observation_provider: 'local' | 'openai';
     observation_model: string;
     profile_model: string;
   };
@@ -199,8 +198,6 @@ export type ScoreTrace = {
   concerns: string[];
   model?: string | null;
   prompt_version?: number | null;
-  grid_batch_id?: string | null;
-  grid_position?: 'top_left' | 'top_center' | 'top_right' | 'middle_left' | 'middle_center' | 'middle_right' | 'bottom_left' | 'bottom_center' | 'bottom_right' | null;
   judged_at?: string | null;
   raw_response: Record<string, unknown>;
 };
@@ -309,34 +306,6 @@ export type JudgmentPromptPreview = {
   tokenizer: 'o200k_base';
 };
 
-export type AiModelProvider = 'openai' | 'cerebras' | 'local' | 'openrouter';
-
-export type ReasoningEffort = 'low' | 'medium' | 'high';
-
-export type AiModelConfig = {
-  id: string;
-  provider: AiModelProvider;
-  model_name: string;
-  reasoning_effort: ReasoningEffort;
-  local_base_url: string | null;
-  display_name: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type AiModelCreate = {
-  provider: AiModelProvider;
-  model_name: string;
-  reasoning_effort: ReasoningEffort;
-  local_base_url?: string | null;
-};
-
-export type AiModelUpdate = {
-  model_name?: string;
-  reasoning_effort?: ReasoningEffort;
-  local_base_url?: string | null;
-};
-
 export type SettingsSnapshot = {
   vinted_region: string;
   vinted_cookie: string;
@@ -346,17 +315,8 @@ export type SettingsSnapshot = {
   vinted_configured: boolean;
   telegram_configured: boolean;
   ai_configured: boolean;
-  judge_configured: boolean;
-  learning_configured: boolean;
-  judge_model_id: string | null;
-  judge_fallback_model_id: string | null;
-  learn_model_id: string | null;
-  observation_model_id: string | null;
-  models: AiModelConfig[];
-  vlm_grid_size: number;
-  vlm_pack_multiple_listing_images: boolean;
-  vlm_judge_parallel_requests: number;
-  ai_judge_image_max_px: number;
+  vision_model: string;
+  decision_model: string;
   alert_threshold: number;
   scan_interval_seconds: number;
   blocked_brands: string[];
@@ -539,9 +499,7 @@ export type SearchRunRecord = {
   alert_count: number;
   queued_delivery_count: number;
   failures_by_reason: Record<string, number> | null;
-  judge_provider: string | null;
   judge_model: string | null;
-  fallback_used: boolean;
   vinted_status: string | null;
   vinted_detail: string | null;
   cost_usd: number;

@@ -1,8 +1,5 @@
 import type {
   AiCostStats,
-  AiModelConfig,
-  AiModelCreate,
-  AiModelUpdate,
   BackupImportResult,
   CacheClearResult,
   CandidatePage,
@@ -39,45 +36,11 @@ type SettingsUpdatePayload = {
   vinted_refresh_token: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
-  judge_model_id: string | null;
-  judge_fallback_model_id: string | null;
-  learn_model_id: string | null;
-  observation_model_id: string | null;
-  vlm_grid_size: number;
-  vlm_pack_multiple_listing_images: boolean;
-  vlm_judge_parallel_requests: number;
-  ai_judge_image_max_px: number;
   alert_threshold: number;
   scan_interval_seconds: number;
 };
 
-export type SettingsSavePayload = Omit<
-  SettingsUpdatePayload,
-  | 'judge_model_id'
-  | 'judge_fallback_model_id'
-  | 'learn_model_id'
-  | 'observation_model_id'
-  | 'vlm_grid_size'
-  | 'vlm_pack_multiple_listing_images'
-  | 'vlm_judge_parallel_requests'
-  | 'ai_judge_image_max_px'
->;
-
-// The AI Models page owns this subset of Settings. Keeping it separate from the
-// full settings form prevents a model configuration save from touching Vinted,
-// Telegram, or scan settings.
-export type AiModelSettingsSavePayload = Pick<
-  SettingsUpdatePayload,
-  | 'vinted_region'
-  | 'judge_model_id'
-  | 'judge_fallback_model_id'
-  | 'learn_model_id'
-  | 'observation_model_id'
-  | 'vlm_grid_size'
-  | 'vlm_pack_multiple_listing_images'
-  | 'vlm_judge_parallel_requests'
-  | 'ai_judge_image_max_px'
->;
+export type SettingsSavePayload = SettingsUpdatePayload;
 
 
 // Carries the HTTP status (0 = network failure) alongside a human-readable
@@ -337,31 +300,6 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  saveAiModelSettings: (payload: AiModelSettingsSavePayload) =>
-    request<SettingsSnapshot>('/api/settings', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-  // model_id scopes the test to one registered AiModelConfig entry
-  // (the route resolves provider/base_url/model_name from the registry server-side).
-  testModel: (payload: { model_id: string; prompt: string }) =>
-    request<{ ok: boolean; provider: string; base_url: string | null; model: string; answer: string }>('/api/settings/test-model', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  getAiModels: () => request<AiModelConfig[]>('/api/ai-models'),
-  createAiModel: (payload: AiModelCreate) =>
-    request<AiModelConfig>('/api/ai-models', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-  updateAiModel: (modelId: string, payload: AiModelUpdate) =>
-    request<AiModelConfig>(`/api/ai-models/${modelId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-  deleteAiModel: (modelId: string) =>
-    request<void>(`/api/ai-models/${modelId}`, { method: 'DELETE' }),
   syncVintedSizes: () => request<VintedSizesResult>('/api/searches/sync-sizes', { method: 'POST' }),
   applyProfileSizesToAll: () => request<VintedSizesResult>('/api/searches/apply-profile-sizes', { method: 'POST' }),
   telegramPreview: () => request<{ preview: string }>('/api/telegram/test', { method: 'POST' }),

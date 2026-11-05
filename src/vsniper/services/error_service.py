@@ -68,9 +68,7 @@ class ErrorService:
             row.telegram_bot_token,
             self.settings.vinted_cookie,
             self.settings.telegram_bot_token,
-            self.settings.ai_api_key,
-            self.settings.cerebras_api_key,
-            self.settings.openrouter_api_key,
+            self.settings.openai_api_key,
         ]
         return sorted(
             {

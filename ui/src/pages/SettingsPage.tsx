@@ -243,7 +243,7 @@ export function SettingsPage() {
                   normalize={(raw) => String(Math.max(1, Math.min(100, Math.round(parsePositiveNumber(raw, form.alert_threshold)))))}
                   onCommit={(normalized) => set('alert_threshold', Number(normalized))}
                 />
-                <span className="field-help">Candidates alert when the judge score is this value or higher. Configure AI models and judge invocation on the AI Models page.</span>
+                <span className="field-help">Candidates alert when the judge score is this value or higher.</span>
               </label>
             </div>
           </div>

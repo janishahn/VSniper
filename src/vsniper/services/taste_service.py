@@ -22,7 +22,6 @@ from vsniper.core.config import Settings
 from vsniper.core.database import session_scope
 from vsniper.db.models import AppSettingsState, Candidate, LearningSnapshotState, TasteSampleState, TasteState
 from vsniper.domain.contracts import (
-    AiProvider,
     CandidateFeature,
     CLOTHING_ITEM_LABELS,
     ClothingItem,
@@ -38,13 +37,16 @@ from vsniper.domain.contracts import (
     TasteSampleUpdate,
     TasteSnapshot,
 )
-from vsniper.integrations.openai.client import OpenAITasteClient
+from vsniper.integrations.openai.client import (
+    LEARN_REASONING_EFFORT,
+    OBSERVATION_IMAGE_DETAIL,
+    OpenAITasteClient,
+)
 from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.integrations.openai.tokenization import text_counts
 from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services._mapping import (
     learning_snapshot_to_contract,
-    resolve_ai_model,
     taste_sample_to_contract,
     taste_state_to_snapshot,
 )
@@ -57,6 +59,8 @@ _IMAGE_FORMAT_SUFFIXES = {
     "WEBP": ".webp",
 }
 logger = logging.getLogger(__name__)
+
+OBSERVATION_BATCH_SIZE = 15
 TASTE_RECOMPUTE_STALE_AFTER = timedelta(hours=2)
 # Allowlist for image URLs fetched from user-supplied Vinted listing URLs.
 _VINTED_IMAGE_HOST_RE = re.compile(
@@ -71,11 +75,6 @@ class TasteRecomputeClaim:
     started_at: datetime | None
     running_job_id: str | None = None
     running_started_at: datetime | None = None
-
-
-class TasteModelNotConfigured(RuntimeError):
-    """Raised when a recompute is attempted but the learn or observation model registry
-    reference is unset or points at a deleted row."""
 
 
 class TasteRecomputeAlreadyRunning(RuntimeError):
@@ -994,13 +993,7 @@ class TasteService:
             db_settings = session.get(AppSettingsState, 1)
             if db_settings is None:
                 raise RuntimeError("Settings row is missing from SQLite storage")
-            learn_model = resolve_ai_model(session, db_settings.learn_model_id)
-            if learn_model is None:
-                raise TasteModelNotConfigured("No learn model is configured. Set one on the Settings page.")
-            observation_model = resolve_ai_model(session, db_settings.observation_model_id)
-            if observation_model is None:
-                raise TasteModelNotConfigured("No observation model is configured. Set one on the Settings page.")
-            observation_detail = self.settings.ai_learn_image_detail
+            vision_model = self.settings.openai_vision_model
             samples = session.scalars(select(TasteSampleState).order_by(TasteSampleState.created_at.asc())).all()
             previous_profile = TasteProfile.model_validate(state.taste_profile) if state.taste_profile else None
             image_inputs = self._sample_image_inputs(samples)
@@ -1020,8 +1013,8 @@ class TasteService:
                 noted_count,
                 bool(state.manual_note.strip()),
                 previous_profile is not None,
-                learn_model.model_name,
-                learn_model.reasoning_effort,
+                vision_model,
+                LEARN_REASONING_EFFORT,
             )
             observations_by_image_id: dict[str, ReferenceObservation] = {}
             missing_inputs: list[_SampleImageInput] = []
@@ -1039,12 +1032,12 @@ class TasteService:
                 len(image_inputs),
                 len(observations_by_image_id),
                 len(missing_inputs),
-                observation_model.provider,
-                observation_model.model_name,
+                "openai",
+                vision_model,
             )
             fresh_observations: list[ReferenceObservation] = []
             if missing_inputs:
-                batch_size = max(1, self.settings.ai_learn_observation_batch_size)
+                batch_size = OBSERVATION_BATCH_SIZE
                 batches = [missing_inputs[i : i + batch_size] for i in range(0, len(missing_inputs), batch_size)]
                 for batch_index, batch in enumerate(batches, start=1):
                     logger.info(
@@ -1055,11 +1048,6 @@ class TasteService:
                     )
                     batch_observations = self.taste_client.describe_reference_images(
                         [(item.image_id, item.file_name, item.image_bytes, item.clothing_item) for item in batch],
-                        provider=observation_model.provider,
-                        model=observation_model.model_name,
-                        reasoning_effort=observation_model.reasoning_effort,
-                        local_base_url=observation_model.local_base_url,
-                        image_detail=observation_detail,
                         on_usage=_track,
                     )
                     fresh_observations.extend(batch_observations)
@@ -1071,9 +1059,9 @@ class TasteService:
                             samples_by_id[image_input.sample_id],
                             image_input,
                             normalised,
-                            provider=observation_model.provider,
-                            model=observation_model.model_name,
-                            image_detail=observation_detail,
+                            provider="openai",
+                            model=vision_model,
+                            image_detail=OBSERVATION_IMAGE_DETAIL,
                             observed_at=observed_at,
                         )
             observations = [
@@ -1097,16 +1085,13 @@ class TasteService:
                 for sample in samples
                 if sample.note.strip()
             )
-            learn_model_name = learn_model.model_name
-            learn_reasoning_effort = learn_model.reasoning_effort
             default_region = db_settings.vinted_region
             observation_cache = TasteObservationCacheStats(
                 total_image_inputs=len(image_inputs),
                 cached_observations=len(image_inputs) - len(missing_inputs),
                 fresh_observations=len(fresh_observations),
-                observation_provider=cast(AiProvider, observation_model.provider),
-                observation_model=observation_model.model_name,
-                profile_model=learn_model.model_name,
+                observation_model=vision_model,
+                profile_model=vision_model,
             )
         # Observations are now durably committed. A failure in the (paid, network-bound)
         # profile build below therefore preserves the freshly described image observations
@@ -1126,8 +1111,6 @@ class TasteService:
             liked_examples=liked_examples,
             disliked_examples=disliked_examples,
             previous_profile=previous_profile,
-            model=learn_model_name,
-            reasoning_effort=learn_reasoning_effort,
             default_region=default_region,
             on_usage=_track,
         )

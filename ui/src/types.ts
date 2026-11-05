@@ -5,18 +5,47 @@ export type SearchFilter = {
   mode: 'include' | 'exclude' | 'range' | 'exact';
 };
 
-export type ClothingItem = 'schuhe' | 'hosen' | 'obenrum_warm' | 'obenrum_mittel' | 'obenrum_kalt' | 'kopf' | 'ringe';
+// A bucket key from /api/buckets.
+export type ClothingItem = string;
 
-export type SearchCategoryOption = {
-  label: string;
-  description: string;
-  default_aliases: string[];
-  allowed_aliases: string[];
-  alias_catalog_ids?: Record<string, string[]>;
-  resolved_catalog_ids: string[];
+export type VintedCatalogNode = {
+  id: number;
+  parent_id: number | null;
+  title: string;
+  path: string;
 };
 
-export type SearchCategoryOptions = Record<ClothingItem, SearchCategoryOption>;
+export type BucketCategory = {
+  id: number;
+  // Empty when the id is no longer in the current Vinted catalog snapshot.
+  path: string;
+};
+
+export type BucketRecord = {
+  key: ClothingItem;
+  label: string;
+  description: string;
+  categories: BucketCategory[];
+  size_keywords: string[];
+  position: number;
+  archived: boolean;
+};
+
+export type BucketWrite = {
+  label: string;
+  description: string;
+  catalog_ids: number[];
+  size_keywords: string[];
+};
+
+export type BucketCreate = BucketWrite & { key: ClothingItem };
+
+export type BucketUpdate = BucketWrite & { archived: boolean };
+
+export type BucketDeleteResult = {
+  key: string;
+  outcome: 'deleted' | 'archived';
+};
 
 export type SearchRecord = {
   id: string;

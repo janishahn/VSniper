@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import logging
 import mimetypes
@@ -15,13 +16,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from vsniper.core.config import Settings
 from vsniper.integrations._retry import retry_transient
-from vsniper.integrations.vinted.categories import (
-    category_options_by_clothing_item,
-    ensure_category_filter_for_clothing_item,
-)
+from vsniper.integrations.vinted.categories import ensure_category_filter
 from vsniper.domain.contracts import (
-    CLOTHING_ITEM_DESCRIPTIONS,
-    CLOTHING_ITEM_LABELS,
+    BucketRecord,
     CandidateJudgment,
     ClothingItem,
     ClothingItemTasteProfile,
@@ -55,7 +52,6 @@ LABEL_PROBABILITY_THRESHOLD = 0.5
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 STRING_ARRAY_SCHEMA = {"type": "array", "items": {"type": "string"}}
-CLOTHING_ITEM_ENUM = list(CLOTHING_ITEM_LABELS)
 REFERENCE_OBSERVATIONS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -127,10 +123,9 @@ TASTE_PROFILE_SCHEMA: dict[str, Any] = {
             },
         },
         "transparency_labels": STRING_ARRAY_SCHEMA,
+        # minItems/maxItems and the clothing_item enum come from the active buckets per call.
         "item_profiles": {
             "type": "array",
-            "minItems": 6,
-            "maxItems": 6,
             "items": {
                 "type": "object",
                 "additionalProperties": False,
@@ -149,7 +144,7 @@ TASTE_PROFILE_SCHEMA: dict[str, Any] = {
                     "generated_search",
                 ],
                 "properties": {
-                    "clothing_item": {"type": "string", "enum": CLOTHING_ITEM_ENUM},
+                    "clothing_item": {"type": "string"},
                     "summary": {"type": "string"},
                     "taste_prompt": {"type": "string"},
                     "core_aesthetic_summary": {"type": "string"},
@@ -304,6 +299,14 @@ class _TasteProfilePayload(BaseModel):
     transparency_labels: list[str] = Field(default_factory=list)
     item_profiles: list[dict[str, Any]] = Field(default_factory=list)
 
+
+
+def _taste_profile_schema(bucket_keys: list[str]) -> dict[str, Any]:
+    schema = copy.deepcopy(TASTE_PROFILE_SCHEMA)
+    item_profiles = schema["properties"]["item_profiles"]
+    item_profiles["minItems"] = item_profiles["maxItems"] = len(bucket_keys)
+    item_profiles["items"]["properties"]["clothing_item"]["enum"] = bucket_keys
+    return schema
 
 
 def _coerce_list(value: list[str] | str) -> list[str]:
@@ -690,6 +693,7 @@ class OpenAITasteClient:
         self,
         images: list[tuple[str, str, bytes, ClothingItem]],
         *,
+        bucket_labels: dict[str, str],
         on_usage: UsageCallback | None = None,
     ) -> list[ReferenceObservation]:
         if not images:
@@ -726,7 +730,7 @@ class OpenAITasteClient:
                     "type": "input_text",
                     "text": (
                         f"Image id: {image_id}; filename: {file_name}; "
-                        f"clothing item: {clothing_item} ({CLOTHING_ITEM_LABELS[clothing_item]})"
+                        f"clothing item: {clothing_item} ({bucket_labels.get(clothing_item, clothing_item)})"
                     ),
                 }
             )
@@ -900,9 +904,13 @@ class OpenAITasteClient:
         liked_examples: list[LabeledExample],
         disliked_examples: list[LabeledExample],
         previous_profile: TasteProfile | None,
+        buckets: list[BucketRecord],
         default_region: str | None = None,
         on_usage: UsageCallback | None = None,
     ) -> TasteProfile:
+        if not buckets:
+            raise ValueError("There are no active buckets to build a taste profile for.")
+        buckets_by_key = {bucket.key: bucket for bucket in buckets}
         model_name = self.settings.openai_vision_model
         effort = LEARN_REASONING_EFFORT
         region = default_region or self.settings.vinted_region
@@ -932,10 +940,13 @@ class OpenAITasteClient:
             "vinted_region": region,
             "listing_language_context": VINTED_DE_LANGUAGE_CONTEXT,
             "clothing_items": {
-                key: {"label": CLOTHING_ITEM_LABELS[key], "description": CLOTHING_ITEM_DESCRIPTIONS[key]}
-                for key in CLOTHING_ITEM_LABELS
+                bucket.key: {
+                    "label": bucket.label,
+                    "description": bucket.description,
+                    "vinted_categories": [{"id": str(category.id), "path": category.path} for category in bucket.categories],
+                }
+                for bucket in buckets
             },
-            "vinted_category_options_by_clothing_item": category_options_by_clothing_item(),
         }
         content = [
             {
@@ -976,9 +987,9 @@ class OpenAITasteClient:
                     "other clothing items leak in as cross_item_influence: palette, era, humor, texture, subculture, "
                     "and silhouette principles that should carry across categories without forcing exact item matches.\n"
                     "10. Every generated_search.filters array MUST include exactly one include-mode filter with "
-                    "field='category' and values chosen exactly from the allowed_aliases for that clothing_item in "
-                    "vinted_category_options_by_clothing_item. Prefer the listed default_aliases unless there is a "
-                    "clear reason to use another allowed alias. Do not invent category names or catalog IDs.\n"
+                    "field='category' whose values are ids taken exactly from that clothing item's vinted_categories "
+                    "in Evidence JSON. Use all of them unless the evidence gives a clear reason to narrow. Do not "
+                    "invent catalog ids.\n"
                     "11. The user is eclectic - stay descriptive, not prescriptive. Do not close the door on adjacent "
                     "subcultures unless the evidence is explicit.\n"
                     "12. Treat `liked_examples_from_history` and `disliked_examples_from_history` as the HIGHEST-priority "
@@ -1015,7 +1026,7 @@ class OpenAITasteClient:
             content=content,
             max_output_tokens=TASTE_PROFILE_MAX_OUTPUT_TOKENS,
             schema_name="taste_profile",
-            schema=TASTE_PROFILE_SCHEMA,
+            schema=_taste_profile_schema(list(buckets_by_key)),
         )
         self._emit_usage("build_taste_profile", model_name, payload, on_usage=on_usage)
         parsed = _TasteProfilePayload.model_validate(_parse_json_output(payload))
@@ -1032,11 +1043,11 @@ class OpenAITasteClient:
                 "cross_item_liked_examples": sum(1 for item in liked_examples if item.clothing_item != clothing_item),
                 "cross_item_disliked_examples": sum(1 for item in disliked_examples if item.clothing_item != clothing_item),
             }
-            for clothing_item in CLOTHING_ITEM_LABELS
+            for clothing_item in buckets_by_key
         }
         for raw in parsed.item_profiles:
             clothing_item = str(raw.get("clothing_item") or "")
-            if clothing_item not in CLOTHING_ITEM_LABELS:
+            if clothing_item not in buckets_by_key:
                 continue
             item_key = clothing_item
             search_raw = raw.get("generated_search") or {}
@@ -1047,11 +1058,11 @@ class OpenAITasteClient:
             # Budget belongs to the user, not to a model-generated taste draft.  Drop
             # it defensively even if a model ignores the prompt's no-price instruction.
             filters = [filter_ for filter_ in filters if filter_.field.strip().lower() != "price"]
-            filters = ensure_category_filter_for_clothing_item(filters, item_key, strict=False)
+            filters = ensure_category_filter(filters, buckets_by_key[item_key], strict=False)
             draft = GeneratedSearchDraft(
                 id=f"draft-{uuid4().hex[:8]}",
                 clothing_item=item_key,
-                name=str(search_raw.get("name") or f"{CLOTHING_ITEM_LABELS[item_key]} search"),
+                name=str(search_raw.get("name") or f"{buckets_by_key[item_key].label} search"),
                 query=str(search_raw.get("query") or ""),
                 region=str(search_raw.get("region") or region),
                 filters=filters,
@@ -1060,7 +1071,7 @@ class OpenAITasteClient:
             )
             item_profiles[item_key] = ClothingItemTasteProfile(
                 clothing_item=item_key,
-                label=CLOTHING_ITEM_LABELS[item_key],
+                label=buckets_by_key[item_key].label,
                 summary=str(raw.get("summary") or raw.get("core_aesthetic_summary") or parsed.core_aesthetic_summary),
                 taste_prompt=str(raw.get("taste_prompt") or parsed.taste_prompt),
                 core_aesthetic_summary=str(raw.get("core_aesthetic_summary") or parsed.core_aesthetic_summary),
@@ -1080,7 +1091,8 @@ class OpenAITasteClient:
             len([profile for profile in item_profiles.values() if profile.generated_search is not None]),
             version,
         )
-        for clothing_item, label in CLOTHING_ITEM_LABELS.items():
+        for clothing_item, bucket in buckets_by_key.items():
+            label = bucket.label
             if clothing_item in item_profiles:
                 continue
             draft = GeneratedSearchDraft(
@@ -1089,7 +1101,7 @@ class OpenAITasteClient:
                 name=f"{label} search",
                 query="",
                 region=region,
-                filters=ensure_category_filter_for_clothing_item([], clothing_item, strict=False),
+                filters=ensure_category_filter([], bucket, strict=False),
                 rationale="Fallback draft because the model omitted this clothing item.",
                 created_at=now,
             )
@@ -1110,7 +1122,7 @@ class OpenAITasteClient:
                 source_counts=source_counts_by_item[clothing_item],
             )
         generated_searches = []
-        for clothing_item in CLOTHING_ITEM_LABELS:
+        for clothing_item in buckets_by_key:
             maybe_draft = item_profiles[clothing_item].generated_search
             if maybe_draft is not None:
                 generated_searches.append(maybe_draft)

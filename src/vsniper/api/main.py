@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from vsniper.api.routes import candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram
+from vsniper.api.routes import buckets, candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram
 from vsniper.core.config import get_settings
 from vsniper.core.database import configure_app_logging
 from vsniper.core.state import get_state
@@ -49,6 +49,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(stats.router, prefix="/api")
 app.include_router(searches.router, prefix="/api")
+app.include_router(buckets.router, prefix="/api")
 app.include_router(taste.router, prefix="/api")
 app.include_router(candidates.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")

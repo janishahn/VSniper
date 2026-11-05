@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, event, update
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import AppSettingsState, Candidate, Search, SearchRun
+from vsniper.db.models import AppSettingsState, Bucket, Candidate, Search, SearchRun
 from vsniper.domain.contracts import ScoreTrace, SearchRecord, SearchUpdate, TasteProfile
 from vsniper.services._mapping import build_session_health
 from vsniper.services.search_service import (
@@ -52,6 +52,7 @@ def _setup(monkeypatch, tmp_path):
     monkeypatch.setattr("vsniper.services.operations_service.session_scope", fake_session_scope)
 
     with fake_session_scope() as session:
+        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9]))
         session.add(Search(id="s1", name="S", clothing_item="hosen", query="q", region="de", run_status="idle"))
 
     service = SearchService.__new__(SearchService)

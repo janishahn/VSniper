@@ -5,7 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronRight, ExternalLink, RotateCw, ThumbsDown, ThumbsUp } from 'lucide-react';
 
 import { api } from '../lib/api';
-import { clothingItemLabel, clothingItems } from '../lib/clothingItems';
+import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
 import { ErrorText } from '../components/ErrorText';
@@ -83,8 +83,6 @@ const DELIVERY_LABEL: Record<CandidateRecord['telegram_delivery_status'], string
   sent: 'Sent',
   failed: 'Send failed',
 };
-
-const CLOTHING_ITEM_VALUES = new Set(clothingItems.map((item) => item.value));
 
 function CandidateGallery({ candidate }: { candidate: CandidateRecord }) {
   const [active, setActive] = useState(0);
@@ -218,6 +216,7 @@ function CandidateCard({
   retryMutation: RetryMutation;
 }) {
   const trace = candidate.score_trace;
+  const { clothingItemLabel } = useBuckets();
   const meta = [clothingItemLabel(candidate.clothing_item), candidate.brand, candidate.size ? `size ${candidate.size}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -289,6 +288,7 @@ function CompactRow({
   const [expanded, setExpanded] = useState(false);
   const thumb = candidate.image_urls[0];
   const trace = candidate.score_trace;
+  const { clothingItemLabel } = useBuckets();
 
   return (
     <Fragment>
@@ -370,9 +370,10 @@ const PAGE_SIZE = 50;
 export function CandidatesPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { buckets } = useBuckets();
   const requestedItemFilter = searchParams.get('clothing_item');
   const clothingItemFilter: ClothingItemFilter =
-    requestedItemFilter && CLOTHING_ITEM_VALUES.has(requestedItemFilter as ClothingItem)
+    requestedItemFilter && buckets.some((bucket) => bucket.key === requestedItemFilter)
       ? (requestedItemFilter as ClothingItem)
       : 'all';
   const stageFilter = (searchParams.get('stage') ?? 'all') as StageFilter;
@@ -494,14 +495,15 @@ export function CandidatesPage() {
           <button type="button" aria-pressed={clothingItemFilter === 'all'} onClick={() => setParam('clothing_item', 'all', 'all')}>
             All <span className="count">{itemCounts.all ?? 0}</span>
           </button>
-          {clothingItems.map((item) => (
+          {/* Archived buckets stay listed while they still have candidates. */}
+          {buckets.filter((bucket) => !bucket.archived || itemCounts[bucket.key]).map((bucket) => (
             <button
-              key={item.value}
+              key={bucket.key}
               type="button"
-              aria-pressed={clothingItemFilter === item.value}
-              onClick={() => setParam('clothing_item', item.value, 'all')}
+              aria-pressed={clothingItemFilter === bucket.key}
+              onClick={() => setParam('clothing_item', bucket.key, 'all')}
             >
-              {item.label} <span className="count">{itemCounts[item.value] ?? 0}</span>
+              {bucket.label} <span className="count">{itemCounts[bucket.key] ?? 0}</span>
             </button>
           ))}
         </div>

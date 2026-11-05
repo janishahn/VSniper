@@ -1,0 +1,1646 @@
+[
+{
+"id": 1904,
+"parent_id": null,
+"title": "Damen",
+"path": "Damen"
+},
+{
+"id": 4,
+"parent_id": 1904,
+"title": "Kleidung",
+"path": "Damen > Kleidung"
+},
+{
+"id": 1037,
+"parent_id": 4,
+"title": "Jacken & Mäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel"
+},
+{
+"id": 1773,
+"parent_id": 1037,
+"title": "Capes & Ponchos",
+"path": "Damen > Kleidung > Jacken & Mäntel > Capes & Ponchos"
+},
+{
+"id": 1907,
+"parent_id": 1037,
+"title": "Mäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel"
+},
+{
+"id": 2525,
+"parent_id": 1907,
+"title": "Dufflecoats",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Dufflecoats"
+},
+{
+"id": 1090,
+"parent_id": 1907,
+"title": "Teddymäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Teddymäntel"
+},
+{
+"id": 2526,
+"parent_id": 1907,
+"title": "Klassische & lange Mäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Klassische & lange Mäntel"
+},
+{
+"id": 1087,
+"parent_id": 1907,
+"title": "Parkas",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Parkas"
+},
+{
+"id": 1076,
+"parent_id": 1907,
+"title": "Cabans & Kurzmäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Cabans & Kurzmäntel"
+},
+{
+"id": 1080,
+"parent_id": 1907,
+"title": "Regenmäntel",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Regenmäntel"
+},
+{
+"id": 1834,
+"parent_id": 1907,
+"title": "Trenchcoats",
+"path": "Damen > Kleidung > Jacken & Mäntel > Mäntel > Trenchcoats"
+},
+{
+"id": 2524,
+"parent_id": 1037,
+"title": "Westen",
+"path": "Damen > Kleidung > Jacken & Mäntel > Westen"
+},
+{
+"id": 1908,
+"parent_id": 1037,
+"title": "Jacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken"
+},
+{
+"id": 2527,
+"parent_id": 1908,
+"title": "Biker- & Racer-Jacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Biker- & Racer-Jacken"
+},
+{
+"id": 1078,
+"parent_id": 1908,
+"title": "Bomberjacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Bomberjacken"
+},
+{
+"id": 1079,
+"parent_id": 1908,
+"title": "Jeansjacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Jeansjacken"
+},
+{
+"id": 2528,
+"parent_id": 1908,
+"title": "Jacken im Military- & Utility-Stil",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Jacken im Military- & Utility-Stil"
+},
+{
+"id": 1086,
+"parent_id": 1908,
+"title": "Fleecejacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Fleecejacken"
+},
+{
+"id": 2614,
+"parent_id": 1908,
+"title": "Daunenjacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Daunenjacken"
+},
+{
+"id": 2596,
+"parent_id": 1908,
+"title": "Steppjacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Steppjacken"
+},
+{
+"id": 2529,
+"parent_id": 1908,
+"title": "Hemdjacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Hemdjacken"
+},
+{
+"id": 2530,
+"parent_id": 1908,
+"title": "Ski- & Snowboard-Jacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Ski- & Snowboard-Jacken"
+},
+{
+"id": 2531,
+"parent_id": 1908,
+"title": "Collegejacken",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Collegejacken"
+},
+{
+"id": 2532,
+"parent_id": 1908,
+"title": "Windbreaker",
+"path": "Damen > Kleidung > Jacken & Mäntel > Jacken > Windbreaker"
+},
+{
+"id": 13,
+"parent_id": 4,
+"title": "Pullover & Strickpullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover"
+},
+{
+"id": 196,
+"parent_id": 13,
+"title": "Hoodies & Sweaters",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Hoodies & Sweaters"
+},
+{
+"id": 1917,
+"parent_id": 13,
+"title": "Pullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover"
+},
+{
+"id": 190,
+"parent_id": 1917,
+"title": "Pullover mit V-Ausschnitt",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > Pullover mit V-Ausschnitt"
+},
+{
+"id": 191,
+"parent_id": 1917,
+"title": "Rollkragenpullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > Rollkragenpullover"
+},
+{
+"id": 192,
+"parent_id": 1917,
+"title": "Lange Pullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > Lange Pullover"
+},
+{
+"id": 529,
+"parent_id": 1917,
+"title": "Strickpullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > Strickpullover"
+},
+{
+"id": 193,
+"parent_id": 1917,
+"title": "¾-ärmelige Pullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > ¾-ärmelige Pullover"
+},
+{
+"id": 1066,
+"parent_id": 1917,
+"title": "Andere Pullover",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Pullover > Andere Pullover"
+},
+{
+"id": 1067,
+"parent_id": 13,
+"title": "Kimonos",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Kimonos"
+},
+{
+"id": 194,
+"parent_id": 13,
+"title": "Strickjacken",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Strickjacken"
+},
+{
+"id": 195,
+"parent_id": 13,
+"title": "Boleros",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Boleros"
+},
+{
+"id": 1874,
+"parent_id": 13,
+"title": "Westen",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Westen"
+},
+{
+"id": 197,
+"parent_id": 13,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Pullover & Strickpullover > Sonstiges"
+},
+{
+"id": 8,
+"parent_id": 4,
+"title": "Blazer & Anzüge",
+"path": "Damen > Kleidung > Blazer & Anzüge"
+},
+{
+"id": 532,
+"parent_id": 8,
+"title": "Blazer",
+"path": "Damen > Kleidung > Blazer & Anzüge > Blazer"
+},
+{
+"id": 1125,
+"parent_id": 8,
+"title": "Hosenanzüge",
+"path": "Damen > Kleidung > Blazer & Anzüge > Hosenanzüge"
+},
+{
+"id": 1126,
+"parent_id": 8,
+"title": "Kostüme und Abendanzüge",
+"path": "Damen > Kleidung > Blazer & Anzüge > Kostüme und Abendanzüge"
+},
+{
+"id": 1128,
+"parent_id": 8,
+"title": "Einzelne Anzugteile",
+"path": "Damen > Kleidung > Blazer & Anzüge > Einzelne Anzugteile"
+},
+{
+"id": 1129,
+"parent_id": 8,
+"title": "Andere Anzüge & Blazer",
+"path": "Damen > Kleidung > Blazer & Anzüge > Andere Anzüge & Blazer"
+},
+{
+"id": 10,
+"parent_id": 4,
+"title": "Kleider",
+"path": "Damen > Kleidung > Kleider"
+},
+{
+"id": 178,
+"parent_id": 10,
+"title": "Minikleider",
+"path": "Damen > Kleidung > Kleider > Minikleider"
+},
+{
+"id": 1056,
+"parent_id": 10,
+"title": "Midikleider",
+"path": "Damen > Kleidung > Kleider > Midikleider"
+},
+{
+"id": 1055,
+"parent_id": 10,
+"title": "Maxikleider",
+"path": "Damen > Kleidung > Kleider > Maxikleider"
+},
+{
+"id": 1774,
+"parent_id": 10,
+"title": "Für besondere Anlässe",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe"
+},
+{
+"id": 1775,
+"parent_id": 1774,
+"title": "Party & Cocktail",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe > Party & Cocktail"
+},
+{
+"id": 1776,
+"parent_id": 1774,
+"title": "Hochzeitskleider",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe > Hochzeitskleider"
+},
+{
+"id": 1777,
+"parent_id": 1774,
+"title": "Abschlussballkleider",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe > Abschlussballkleider"
+},
+{
+"id": 1778,
+"parent_id": 1774,
+"title": "Abendkleider",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe > Abendkleider"
+},
+{
+"id": 1060,
+"parent_id": 1774,
+"title": "Rückenfreie Kleider",
+"path": "Damen > Kleidung > Kleider > Für besondere Anlässe > Rückenfreie Kleider"
+},
+{
+"id": 1065,
+"parent_id": 10,
+"title": "Sommerkleider",
+"path": "Damen > Kleidung > Kleider > Sommerkleider"
+},
+{
+"id": 1779,
+"parent_id": 10,
+"title": "Winterkleider",
+"path": "Damen > Kleidung > Kleider > Winterkleider"
+},
+{
+"id": 1057,
+"parent_id": 10,
+"title": "Formelle & Business-Kleider",
+"path": "Damen > Kleidung > Kleider > Formelle & Business-Kleider"
+},
+{
+"id": 1059,
+"parent_id": 10,
+"title": "Lässige Kleider",
+"path": "Damen > Kleidung > Kleider > Lässige Kleider"
+},
+{
+"id": 1061,
+"parent_id": 10,
+"title": "Trägerlose Kleider",
+"path": "Damen > Kleidung > Kleider > Trägerlose Kleider"
+},
+{
+"id": 1058,
+"parent_id": 10,
+"title": "Kleine Schwarze",
+"path": "Damen > Kleidung > Kleider > Kleine Schwarze"
+},
+{
+"id": 179,
+"parent_id": 10,
+"title": "Jeanskleider",
+"path": "Damen > Kleidung > Kleider > Jeanskleider"
+},
+{
+"id": 176,
+"parent_id": 10,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Kleider > Sonstiges"
+},
+{
+"id": 11,
+"parent_id": 4,
+"title": "Röcke",
+"path": "Damen > Kleidung > Röcke"
+},
+{
+"id": 198,
+"parent_id": 11,
+"title": "Miniröcke",
+"path": "Damen > Kleidung > Röcke > Miniröcke"
+},
+{
+"id": 2927,
+"parent_id": 11,
+"title": "Knielange Röcke",
+"path": "Damen > Kleidung > Röcke > Knielange Röcke"
+},
+{
+"id": 199,
+"parent_id": 11,
+"title": "Midiröcke",
+"path": "Damen > Kleidung > Röcke > Midiröcke"
+},
+{
+"id": 200,
+"parent_id": 11,
+"title": "Maxiröcke",
+"path": "Damen > Kleidung > Röcke > Maxiröcke"
+},
+{
+"id": 2928,
+"parent_id": 11,
+"title": "Asymmetrische Röcke",
+"path": "Damen > Kleidung > Röcke > Asymmetrische Röcke"
+},
+{
+"id": 5491,
+"parent_id": 4,
+"title": "Skorts",
+"path": "Damen > Kleidung > Skorts"
+},
+{
+"id": 12,
+"parent_id": 4,
+"title": "Tops & T-Shirts",
+"path": "Damen > Kleidung > Tops & T-Shirts"
+},
+{
+"id": 222,
+"parent_id": 12,
+"title": "Shirts",
+"path": "Damen > Kleidung > Tops & T-Shirts > Shirts"
+},
+{
+"id": 1043,
+"parent_id": 12,
+"title": "Blusen",
+"path": "Damen > Kleidung > Tops & T-Shirts > Blusen"
+},
+{
+"id": 14,
+"parent_id": 12,
+"title": "Westen",
+"path": "Damen > Kleidung > Tops & T-Shirts > Westen"
+},
+{
+"id": 221,
+"parent_id": 12,
+"title": "T-Shirts",
+"path": "Damen > Kleidung > Tops & T-Shirts > T-Shirts"
+},
+{
+"id": 534,
+"parent_id": 12,
+"title": "Trägerhemden",
+"path": "Damen > Kleidung > Tops & T-Shirts > Trägerhemden"
+},
+{
+"id": 227,
+"parent_id": 12,
+"title": "Tuniken",
+"path": "Damen > Kleidung > Tops & T-Shirts > Tuniken"
+},
+{
+"id": 1041,
+"parent_id": 12,
+"title": "Bauchfreie Tops",
+"path": "Damen > Kleidung > Tops & T-Shirts > Bauchfreie Tops"
+},
+{
+"id": 223,
+"parent_id": 12,
+"title": "Kurzärmelige Blusen",
+"path": "Damen > Kleidung > Tops & T-Shirts > Kurzärmelige Blusen"
+},
+{
+"id": 225,
+"parent_id": 12,
+"title": "¾-Blusen",
+"path": "Damen > Kleidung > Tops & T-Shirts > ¾-Blusen"
+},
+{
+"id": 224,
+"parent_id": 12,
+"title": "Langärmelige Blusen",
+"path": "Damen > Kleidung > Tops & T-Shirts > Langärmelige Blusen"
+},
+{
+"id": 1835,
+"parent_id": 12,
+"title": "Bodys",
+"path": "Damen > Kleidung > Tops & T-Shirts > Bodys"
+},
+{
+"id": 1042,
+"parent_id": 12,
+"title": "Schulterfreie Tops",
+"path": "Damen > Kleidung > Tops & T-Shirts > Schulterfreie Tops"
+},
+{
+"id": 1045,
+"parent_id": 12,
+"title": "Rollkragen",
+"path": "Damen > Kleidung > Tops & T-Shirts > Rollkragen"
+},
+{
+"id": 1837,
+"parent_id": 12,
+"title": "Schößchentops",
+"path": "Damen > Kleidung > Tops & T-Shirts > Schößchentops"
+},
+{
+"id": 1044,
+"parent_id": 12,
+"title": "Neckholder-Tops",
+"path": "Damen > Kleidung > Tops & T-Shirts > Neckholder-Tops"
+},
+{
+"id": 228,
+"parent_id": 12,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Tops & T-Shirts > Sonstiges"
+},
+{
+"id": 183,
+"parent_id": 4,
+"title": "Jeans",
+"path": "Damen > Kleidung > Jeans"
+},
+{
+"id": 1839,
+"parent_id": 183,
+"title": "Boyfriend Jeans",
+"path": "Damen > Kleidung > Jeans > Boyfriend Jeans"
+},
+{
+"id": 1840,
+"parent_id": 183,
+"title": "Cropped Jeans",
+"path": "Damen > Kleidung > Jeans > Cropped Jeans"
+},
+{
+"id": 1841,
+"parent_id": 183,
+"title": "Schlaghosen",
+"path": "Damen > Kleidung > Jeans > Schlaghosen"
+},
+{
+"id": 1842,
+"parent_id": 183,
+"title": "Jeans mit hoher Taille",
+"path": "Damen > Kleidung > Jeans > Jeans mit hoher Taille"
+},
+{
+"id": 1843,
+"parent_id": 183,
+"title": "Ripped Jeans",
+"path": "Damen > Kleidung > Jeans > Ripped Jeans"
+},
+{
+"id": 1844,
+"parent_id": 183,
+"title": "Röhrenjeans",
+"path": "Damen > Kleidung > Jeans > Röhrenjeans"
+},
+{
+"id": 1845,
+"parent_id": 183,
+"title": "Gerade geschnittene Jeans",
+"path": "Damen > Kleidung > Jeans > Gerade geschnittene Jeans"
+},
+{
+"id": 1864,
+"parent_id": 183,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Jeans > Sonstiges"
+},
+{
+"id": 9,
+"parent_id": 4,
+"title": "Hosen & Leggings",
+"path": "Damen > Kleidung > Hosen & Leggings"
+},
+{
+"id": 1070,
+"parent_id": 9,
+"title": "Dreiviertel-Hosen & Chinos",
+"path": "Damen > Kleidung > Hosen & Leggings > Dreiviertel-Hosen & Chinos"
+},
+{
+"id": 1071,
+"parent_id": 9,
+"title": "Hosen mit weitem Bein",
+"path": "Damen > Kleidung > Hosen & Leggings > Hosen mit weitem Bein"
+},
+{
+"id": 185,
+"parent_id": 9,
+"title": "Röhrenhosen",
+"path": "Damen > Kleidung > Hosen & Leggings > Röhrenhosen"
+},
+{
+"id": 187,
+"parent_id": 9,
+"title": "Hosen nach Maß",
+"path": "Damen > Kleidung > Hosen & Leggings > Hosen nach Maß"
+},
+{
+"id": 1846,
+"parent_id": 9,
+"title": "Gerade geschnittene Hosen",
+"path": "Damen > Kleidung > Hosen & Leggings > Gerade geschnittene Hosen"
+},
+{
+"id": 184,
+"parent_id": 9,
+"title": "Lederhosen",
+"path": "Damen > Kleidung > Hosen & Leggings > Lederhosen"
+},
+{
+"id": 525,
+"parent_id": 9,
+"title": "Leggings",
+"path": "Damen > Kleidung > Hosen & Leggings > Leggings"
+},
+{
+"id": 526,
+"parent_id": 9,
+"title": "Pluderhosen",
+"path": "Damen > Kleidung > Hosen & Leggings > Pluderhosen"
+},
+{
+"id": 189,
+"parent_id": 9,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Hosen & Leggings > Sonstiges"
+},
+{
+"id": 15,
+"parent_id": 4,
+"title": "Shorts",
+"path": "Damen > Kleidung > Shorts"
+},
+{
+"id": 1838,
+"parent_id": 15,
+"title": "Shorts mit tiefer Taille",
+"path": "Damen > Kleidung > Shorts > Shorts mit tiefer Taille"
+},
+{
+"id": 1099,
+"parent_id": 15,
+"title": "Shorts mit hoher Taille",
+"path": "Damen > Kleidung > Shorts > Shorts mit hoher Taille"
+},
+{
+"id": 203,
+"parent_id": 15,
+"title": "Knielange Shorts",
+"path": "Damen > Kleidung > Shorts > Knielange Shorts"
+},
+{
+"id": 538,
+"parent_id": 15,
+"title": "Jeansshorts",
+"path": "Damen > Kleidung > Shorts > Jeansshorts"
+},
+{
+"id": 1101,
+"parent_id": 15,
+"title": "Schnürshorts",
+"path": "Damen > Kleidung > Shorts > Schnürshorts"
+},
+{
+"id": 1100,
+"parent_id": 15,
+"title": "Ledershorts",
+"path": "Damen > Kleidung > Shorts > Ledershorts"
+},
+{
+"id": 1103,
+"parent_id": 15,
+"title": "Cargoshorts",
+"path": "Damen > Kleidung > Shorts > Cargoshorts"
+},
+{
+"id": 204,
+"parent_id": 15,
+"title": "Capri-Hosen",
+"path": "Damen > Kleidung > Shorts > Capri-Hosen"
+},
+{
+"id": 205,
+"parent_id": 15,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Shorts > Sonstiges"
+},
+{
+"id": 1035,
+"parent_id": 4,
+"title": "Jumpsuits & Playsuits",
+"path": "Damen > Kleidung > Jumpsuits & Playsuits"
+},
+{
+"id": 1131,
+"parent_id": 1035,
+"title": "Overalls",
+"path": "Damen > Kleidung > Jumpsuits & Playsuits > Overalls"
+},
+{
+"id": 1132,
+"parent_id": 1035,
+"title": "Einteiler",
+"path": "Damen > Kleidung > Jumpsuits & Playsuits > Einteiler"
+},
+{
+"id": 1134,
+"parent_id": 1035,
+"title": "Andere Jump- & Playsuits",
+"path": "Damen > Kleidung > Jumpsuits & Playsuits > Andere Jump- & Playsuits"
+},
+{
+"id": 28,
+"parent_id": 4,
+"title": "Bademode",
+"path": "Damen > Kleidung > Bademode"
+},
+{
+"id": 218,
+"parent_id": 28,
+"title": "Badeanzüge",
+"path": "Damen > Kleidung > Bademode > Badeanzüge"
+},
+{
+"id": 219,
+"parent_id": 28,
+"title": "Bikinis",
+"path": "Damen > Kleidung > Bademode > Bikinis"
+},
+{
+"id": 1780,
+"parent_id": 28,
+"title": "Strandblusen & Sarongs",
+"path": "Damen > Kleidung > Bademode > Strandblusen & Sarongs"
+},
+{
+"id": 220,
+"parent_id": 28,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Bademode > Sonstiges"
+},
+{
+"id": 29,
+"parent_id": 4,
+"title": "Unterwäsche & Nachtwäsche",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche"
+},
+{
+"id": 119,
+"parent_id": 29,
+"title": "BHs",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > BHs"
+},
+{
+"id": 120,
+"parent_id": 29,
+"title": "Slips",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Slips"
+},
+{
+"id": 229,
+"parent_id": 29,
+"title": "Sets",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Sets"
+},
+{
+"id": 1781,
+"parent_id": 29,
+"title": "Figur formende Unterwäsche",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Figur formende Unterwäsche"
+},
+{
+"id": 123,
+"parent_id": 29,
+"title": "Nachtwäsche & Pyjamas",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Nachtwäsche & Pyjamas"
+},
+{
+"id": 1030,
+"parent_id": 29,
+"title": "Bademäntel",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Bademäntel"
+},
+{
+"id": 1263,
+"parent_id": 29,
+"title": "Strumpfhosen",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Strumpfhosen"
+},
+{
+"id": 1262,
+"parent_id": 29,
+"title": "Socken",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Socken"
+},
+{
+"id": 1847,
+"parent_id": 29,
+"title": "Accessoires für Dessous",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Accessoires für Dessous"
+},
+{
+"id": 124,
+"parent_id": 29,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Unterwäsche & Nachtwäsche > Sonstiges"
+},
+{
+"id": 1176,
+"parent_id": 4,
+"title": "Umstandskleidung",
+"path": "Damen > Kleidung > Umstandskleidung"
+},
+{
+"id": 1179,
+"parent_id": 1176,
+"title": "Shirts, Tops & Blusen",
+"path": "Damen > Kleidung > Umstandskleidung > Shirts, Tops & Blusen"
+},
+{
+"id": 1182,
+"parent_id": 1176,
+"title": "Kleider",
+"path": "Damen > Kleidung > Umstandskleidung > Kleider"
+},
+{
+"id": 1178,
+"parent_id": 1176,
+"title": "Röcke",
+"path": "Damen > Kleidung > Umstandskleidung > Röcke"
+},
+{
+"id": 1177,
+"parent_id": 1176,
+"title": "Hosen",
+"path": "Damen > Kleidung > Umstandskleidung > Hosen"
+},
+{
+"id": 1185,
+"parent_id": 1176,
+"title": "Shorts & Capris",
+"path": "Damen > Kleidung > Umstandskleidung > Shorts & Capris"
+},
+{
+"id": 1181,
+"parent_id": 1176,
+"title": "Overalls für Schwangere",
+"path": "Damen > Kleidung > Umstandskleidung > Overalls für Schwangere"
+},
+{
+"id": 1184,
+"parent_id": 1176,
+"title": "Pullover und Jacken",
+"path": "Damen > Kleidung > Umstandskleidung > Pullover und Jacken"
+},
+{
+"id": 1183,
+"parent_id": 1176,
+"title": "Mäntel & Jacken",
+"path": "Damen > Kleidung > Umstandskleidung > Mäntel & Jacken"
+},
+{
+"id": 1186,
+"parent_id": 1176,
+"title": "Badekleidung",
+"path": "Damen > Kleidung > Umstandskleidung > Badekleidung"
+},
+{
+"id": 1614,
+"parent_id": 1176,
+"title": "Unterwäsche",
+"path": "Damen > Kleidung > Umstandskleidung > Unterwäsche"
+},
+{
+"id": 1615,
+"parent_id": 1614,
+"title": "Umstandsunterwäsche",
+"path": "Damen > Kleidung > Umstandskleidung > Unterwäsche > Umstandsunterwäsche"
+},
+{
+"id": 1616,
+"parent_id": 1614,
+"title": "Umstands-Nachtwäsche",
+"path": "Damen > Kleidung > Umstandskleidung > Unterwäsche > Umstands-Nachtwäsche"
+},
+{
+"id": 1618,
+"parent_id": 1614,
+"title": "Schwangerschafts- & Still-BHs",
+"path": "Damen > Kleidung > Umstandskleidung > Unterwäsche > Schwangerschafts- & Still-BHs"
+},
+{
+"id": 2084,
+"parent_id": 1176,
+"title": "Sportkleidung",
+"path": "Damen > Kleidung > Umstandskleidung > Sportkleidung"
+},
+{
+"id": 73,
+"parent_id": 4,
+"title": "Activewear",
+"path": "Damen > Kleidung > Activewear"
+},
+{
+"id": 571,
+"parent_id": 73,
+"title": "Outdoor-Bekleidung",
+"path": "Damen > Kleidung > Activewear > Outdoor-Bekleidung"
+},
+{
+"id": 572,
+"parent_id": 73,
+"title": "Trainingsanzüge",
+"path": "Damen > Kleidung > Activewear > Trainingsanzüge"
+},
+{
+"id": 573,
+"parent_id": 73,
+"title": "Hosen",
+"path": "Damen > Kleidung > Activewear > Hosen"
+},
+{
+"id": 578,
+"parent_id": 73,
+"title": "Shorts",
+"path": "Damen > Kleidung > Activewear > Shorts"
+},
+{
+"id": 574,
+"parent_id": 73,
+"title": "Kleider",
+"path": "Damen > Kleidung > Activewear > Kleider"
+},
+{
+"id": 575,
+"parent_id": 73,
+"title": "Röcke",
+"path": "Damen > Kleidung > Activewear > Röcke"
+},
+{
+"id": 576,
+"parent_id": 73,
+"title": "Oberteile",
+"path": "Damen > Kleidung > Activewear > Oberteile"
+},
+{
+"id": 3268,
+"parent_id": 73,
+"title": "Trikots",
+"path": "Damen > Kleidung > Activewear > Trikots"
+},
+{
+"id": 577,
+"parent_id": 73,
+"title": "Hoodies & Sweatshirts",
+"path": "Damen > Kleidung > Activewear > Hoodies & Sweatshirts"
+},
+{
+"id": 579,
+"parent_id": 73,
+"title": "Accessoires",
+"path": "Damen > Kleidung > Activewear > Accessoires"
+},
+{
+"id": 1441,
+"parent_id": 579,
+"title": "Brillen",
+"path": "Damen > Kleidung > Activewear > Accessoires > Brillen"
+},
+{
+"id": 1444,
+"parent_id": 579,
+"title": "Handschuhe",
+"path": "Damen > Kleidung > Activewear > Accessoires > Handschuhe"
+},
+{
+"id": 1443,
+"parent_id": 579,
+"title": "Hüte",
+"path": "Damen > Kleidung > Activewear > Accessoires > Hüte"
+},
+{
+"id": 1440,
+"parent_id": 579,
+"title": "Schals",
+"path": "Damen > Kleidung > Activewear > Accessoires > Schals"
+},
+{
+"id": 3049,
+"parent_id": 579,
+"title": "Armbänder",
+"path": "Damen > Kleidung > Activewear > Accessoires > Armbänder"
+},
+{
+"id": 1439,
+"parent_id": 73,
+"title": "BHs",
+"path": "Damen > Kleidung > Activewear > BHs"
+},
+{
+"id": 580,
+"parent_id": 73,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Activewear > Sonstiges"
+},
+{
+"id": 1782,
+"parent_id": 4,
+"title": "Kostüme & Besonderes",
+"path": "Damen > Kleidung > Kostüme & Besonderes"
+},
+{
+"id": 18,
+"parent_id": 4,
+"title": "Sonstiges",
+"path": "Damen > Kleidung > Sonstiges"
+},
+{
+"id": 16,
+"parent_id": 1904,
+"title": "Schuhe",
+"path": "Damen > Schuhe"
+},
+{
+"id": 2955,
+"parent_id": 16,
+"title": "Ballerinas",
+"path": "Damen > Schuhe > Ballerinas"
+},
+{
+"id": 2954,
+"parent_id": 16,
+"title": "Bootsschuhe, Loafer & Mokassins",
+"path": "Damen > Schuhe > Bootsschuhe, Loafer & Mokassins"
+},
+{
+"id": 1049,
+"parent_id": 16,
+"title": "Stiefel",
+"path": "Damen > Schuhe > Stiefel"
+},
+{
+"id": 2618,
+"parent_id": 1049,
+"title": "Stiefeletten",
+"path": "Damen > Schuhe > Stiefel > Stiefeletten"
+},
+{
+"id": 2619,
+"parent_id": 1049,
+"title": "Halbhohe Stiefel",
+"path": "Damen > Schuhe > Stiefel > Halbhohe Stiefel"
+},
+{
+"id": 211,
+"parent_id": 1049,
+"title": "Kniehohe Stiefel",
+"path": "Damen > Schuhe > Stiefel > Kniehohe Stiefel"
+},
+{
+"id": 2620,
+"parent_id": 1049,
+"title": "Overknees",
+"path": "Damen > Schuhe > Stiefel > Overknees"
+},
+{
+"id": 2621,
+"parent_id": 1049,
+"title": "Schneestiefel",
+"path": "Damen > Schuhe > Stiefel > Schneestiefel"
+},
+{
+"id": 213,
+"parent_id": 1049,
+"title": "Gummistiefel",
+"path": "Damen > Schuhe > Stiefel > Gummistiefel"
+},
+{
+"id": 2622,
+"parent_id": 1049,
+"title": "Arbeitsstiefel",
+"path": "Damen > Schuhe > Stiefel > Arbeitsstiefel"
+},
+{
+"id": 2623,
+"parent_id": 16,
+"title": "Clogs",
+"path": "Damen > Schuhe > Clogs"
+},
+{
+"id": 2953,
+"parent_id": 16,
+"title": "Espadrilles",
+"path": "Damen > Schuhe > Espadrilles"
+},
+{
+"id": 2952,
+"parent_id": 16,
+"title": "Zehentrenner & Slides",
+"path": "Damen > Schuhe > Zehentrenner & Slides"
+},
+{
+"id": 543,
+"parent_id": 16,
+"title": "Absatzschuhe",
+"path": "Damen > Schuhe > Absatzschuhe"
+},
+{
+"id": 2951,
+"parent_id": 16,
+"title": "Schnürschuhe",
+"path": "Damen > Schuhe > Schnürschuhe"
+},
+{
+"id": 2950,
+"parent_id": 16,
+"title": "Spangenschuhe & Schuhe mit T-Steg",
+"path": "Damen > Schuhe > Spangenschuhe & Schuhe mit T-Steg"
+},
+{
+"id": 2949,
+"parent_id": 16,
+"title": "Sandalen",
+"path": "Damen > Schuhe > Sandalen"
+},
+{
+"id": 215,
+"parent_id": 16,
+"title": "Hausschuhe, Pantoffeln & Slipper",
+"path": "Damen > Schuhe > Hausschuhe, Pantoffeln & Slipper"
+},
+{
+"id": 2630,
+"parent_id": 16,
+"title": "Sportschuhe",
+"path": "Damen > Schuhe > Sportschuhe"
+},
+{
+"id": 2639,
+"parent_id": 2630,
+"title": "Basketballschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Basketballschuhe"
+},
+{
+"id": 2640,
+"parent_id": 2630,
+"title": "Kletterschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Kletterschuhe"
+},
+{
+"id": 2641,
+"parent_id": 2630,
+"title": "Fahrradschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Fahrradschuhe"
+},
+{
+"id": 2642,
+"parent_id": 2630,
+"title": "Tanzschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Tanzschuhe"
+},
+{
+"id": 2643,
+"parent_id": 2630,
+"title": "Fußballschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Fußballschuhe"
+},
+{
+"id": 2644,
+"parent_id": 2630,
+"title": "Golfschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Golfschuhe"
+},
+{
+"id": 2645,
+"parent_id": 2630,
+"title": "Wander- & Trekkingschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Wander- & Trekkingschuhe"
+},
+{
+"id": 2646,
+"parent_id": 2630,
+"title": "Schlittschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Schlittschuhe"
+},
+{
+"id": 2647,
+"parent_id": 2630,
+"title": "Hallenfußballschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Hallenfußballschuhe"
+},
+{
+"id": 2648,
+"parent_id": 2630,
+"title": "Sportschuhe für drinnen",
+"path": "Damen > Schuhe > Sportschuhe > Sportschuhe für drinnen"
+},
+{
+"id": 2649,
+"parent_id": 2630,
+"title": "Motorradstiefel",
+"path": "Damen > Schuhe > Sportschuhe > Motorradstiefel"
+},
+{
+"id": 2650,
+"parent_id": 2630,
+"title": "Rollschuhe & Inlineskates",
+"path": "Damen > Schuhe > Sportschuhe > Rollschuhe & Inlineskates"
+},
+{
+"id": 2651,
+"parent_id": 2630,
+"title": "Laufschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Laufschuhe"
+},
+{
+"id": 2652,
+"parent_id": 2630,
+"title": "Skistiefel",
+"path": "Damen > Schuhe > Sportschuhe > Skistiefel"
+},
+{
+"id": 2653,
+"parent_id": 2630,
+"title": "Snowboard Boots",
+"path": "Damen > Schuhe > Sportschuhe > Snowboard Boots"
+},
+{
+"id": 2654,
+"parent_id": 2630,
+"title": "Schwimm- & Wasserschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Schwimm- & Wasserschuhe"
+},
+{
+"id": 2655,
+"parent_id": 2630,
+"title": "Tennisschuhe",
+"path": "Damen > Schuhe > Sportschuhe > Tennisschuhe"
+},
+{
+"id": 2632,
+"parent_id": 16,
+"title": "Sneaker",
+"path": "Damen > Schuhe > Sneaker"
+},
+{
+"id": 19,
+"parent_id": 1904,
+"title": "Taschen",
+"path": "Damen > Taschen"
+},
+{
+"id": 157,
+"parent_id": 19,
+"title": "Rucksäcke",
+"path": "Damen > Taschen > Rucksäcke"
+},
+{
+"id": 2940,
+"parent_id": 19,
+"title": "Strandtaschen",
+"path": "Damen > Taschen > Strandtaschen"
+},
+{
+"id": 2941,
+"parent_id": 19,
+"title": "Aktentaschen",
+"path": "Damen > Taschen > Aktentaschen"
+},
+{
+"id": 2942,
+"parent_id": 19,
+"title": "Bucket Bags",
+"path": "Damen > Taschen > Bucket Bags"
+},
+{
+"id": 1848,
+"parent_id": 19,
+"title": "Bauchtaschen",
+"path": "Damen > Taschen > Bauchtaschen"
+},
+{
+"id": 159,
+"parent_id": 19,
+"title": "Clutches",
+"path": "Damen > Taschen > Clutches"
+},
+{
+"id": 2943,
+"parent_id": 19,
+"title": "Kleiderhüllen",
+"path": "Damen > Taschen > Kleiderhüllen"
+},
+{
+"id": 2944,
+"parent_id": 19,
+"title": "Sporttaschen",
+"path": "Damen > Taschen > Sporttaschen"
+},
+{
+"id": 156,
+"parent_id": 19,
+"title": "Handtaschen",
+"path": "Damen > Taschen > Handtaschen"
+},
+{
+"id": 2945,
+"parent_id": 19,
+"title": "Hobo Bags",
+"path": "Damen > Taschen > Hobo Bags"
+},
+{
+"id": 1849,
+"parent_id": 19,
+"title": "Reisetaschen",
+"path": "Damen > Taschen > Reisetaschen"
+},
+{
+"id": 1850,
+"parent_id": 19,
+"title": "Reisetaschen",
+"path": "Damen > Taschen > Reisetaschen"
+},
+{
+"id": 161,
+"parent_id": 19,
+"title": "Kosmetiktaschen",
+"path": "Damen > Taschen > Kosmetiktaschen"
+},
+{
+"id": 1784,
+"parent_id": 19,
+"title": "Satchels & Messenger Bags",
+"path": "Damen > Taschen > Satchels & Messenger Bags"
+},
+{
+"id": 158,
+"parent_id": 19,
+"title": "Umhängetaschen",
+"path": "Damen > Taschen > Umhängetaschen"
+},
+{
+"id": 552,
+"parent_id": 19,
+"title": "Tragetaschen",
+"path": "Damen > Taschen > Tragetaschen"
+},
+{
+"id": 160,
+"parent_id": 19,
+"title": "Portemonnaies",
+"path": "Damen > Taschen > Portemonnaies"
+},
+{
+"id": 2939,
+"parent_id": 19,
+"title": "Wristlets",
+"path": "Damen > Taschen > Wristlets"
+},
+{
+"id": 1187,
+"parent_id": 1904,
+"title": "Accessoires",
+"path": "Damen > Accessoires"
+},
+{
+"id": 2931,
+"parent_id": 1187,
+"title": "Bandanas & Kopftücher",
+"path": "Damen > Accessoires > Bandanas & Kopftücher"
+},
+{
+"id": 20,
+"parent_id": 1187,
+"title": "Gürtel",
+"path": "Damen > Accessoires > Gürtel"
+},
+{
+"id": 90,
+"parent_id": 1187,
+"title": "Handschuhe",
+"path": "Damen > Accessoires > Handschuhe"
+},
+{
+"id": 1123,
+"parent_id": 1187,
+"title": "Haarschmuck",
+"path": "Damen > Accessoires > Haarschmuck"
+},
+{
+"id": 2932,
+"parent_id": 1187,
+"title": "Halstücher",
+"path": "Damen > Accessoires > Halstücher"
+},
+{
+"id": 88,
+"parent_id": 1187,
+"title": "Hüte & Mützen",
+"path": "Damen > Accessoires > Hüte & Mützen"
+},
+{
+"id": 2933,
+"parent_id": 88,
+"title": "Balaklavas",
+"path": "Damen > Accessoires > Hüte & Mützen > Balaklavas"
+},
+{
+"id": 2934,
+"parent_id": 88,
+"title": "Beanies",
+"path": "Damen > Accessoires > Hüte & Mützen > Beanies"
+},
+{
+"id": 230,
+"parent_id": 88,
+"title": "Mützen",
+"path": "Damen > Accessoires > Hüte & Mützen > Mützen"
+},
+{
+"id": 2935,
+"parent_id": 88,
+"title": "Ohrenschützer",
+"path": "Damen > Accessoires > Hüte & Mützen > Ohrenschützer"
+},
+{
+"id": 2936,
+"parent_id": 88,
+"title": "Fascinators",
+"path": "Damen > Accessoires > Hüte & Mützen > Fascinators"
+},
+{
+"id": 231,
+"parent_id": 88,
+"title": "Hüte",
+"path": "Damen > Accessoires > Hüte & Mützen > Hüte"
+},
+{
+"id": 234,
+"parent_id": 88,
+"title": "Stirnbänder",
+"path": "Damen > Accessoires > Hüte & Mützen > Stirnbänder"
+},
+{
+"id": 21,
+"parent_id": 1187,
+"title": "Schmuck",
+"path": "Damen > Accessoires > Schmuck"
+},
+{
+"id": 1785,
+"parent_id": 21,
+"title": "Fußkettchen",
+"path": "Damen > Accessoires > Schmuck > Fußkettchen"
+},
+{
+"id": 2937,
+"parent_id": 21,
+"title": "Körperschmuck",
+"path": "Damen > Accessoires > Schmuck > Körperschmuck"
+},
+{
+"id": 165,
+"parent_id": 21,
+"title": "Armbänder",
+"path": "Damen > Accessoires > Schmuck > Armbänder"
+},
+{
+"id": 167,
+"parent_id": 21,
+"title": "Broschen",
+"path": "Damen > Accessoires > Schmuck > Broschen"
+},
+{
+"id": 2938,
+"parent_id": 21,
+"title": "Charms & Anhänger",
+"path": "Damen > Accessoires > Schmuck > Charms & Anhänger"
+},
+{
+"id": 163,
+"parent_id": 21,
+"title": "Ohrringe",
+"path": "Damen > Accessoires > Schmuck > Ohrringe"
+},
+{
+"id": 166,
+"parent_id": 21,
+"title": "Schmucksets",
+"path": "Damen > Accessoires > Schmuck > Schmucksets"
+},
+{
+"id": 164,
+"parent_id": 21,
+"title": "Halsketten",
+"path": "Damen > Accessoires > Schmuck > Halsketten"
+},
+{
+"id": 553,
+"parent_id": 21,
+"title": "Ringe",
+"path": "Damen > Accessoires > Schmuck > Ringe"
+},
+{
+"id": 162,
+"parent_id": 21,
+"title": "Anderer Schmuck",
+"path": "Damen > Accessoires > Schmuck > Anderer Schmuck"
+},
+{
+"id": 1852,
+"parent_id": 1187,
+"title": "Schlüsselanhänger",
+"path": "Damen > Accessoires > Schlüsselanhänger"
+},
+{
+"id": 89,
+"parent_id": 1187,
+"title": "Tücher & Schals",
+"path": "Damen > Accessoires > Tücher & Schals"
+},
+{
+"id": 26,
+"parent_id": 1187,
+"title": "Sonnenbrillen",
+"path": "Damen > Accessoires > Sonnenbrillen"
+},
+{
+"id": 1851,
+"parent_id": 1187,
+"title": "Regenschirme",
+"path": "Damen > Accessoires > Regenschirme"
+},
+{
+"id": 22,
+"parent_id": 1187,
+"title": "Uhren",
+"path": "Damen > Accessoires > Uhren"
+},
+{
+"id": 1140,
+"parent_id": 1187,
+"title": "Sonstige Accessoires",
+"path": "Damen > Accessoires > Sonstige Accessoires"
+},
+{
+"id": 146,
+"parent_id": 1904,
+"title": "Beauty",
+"path": "Damen > Beauty"
+},
+{
+"id": 964,
+"parent_id": 146,
+"title": "Make-up",
+"path": "Damen > Beauty > Make-up"
+},
+{
+"id": 152,
+"parent_id": 146,
+"title": "Parfums",
+"path": "Damen > Beauty > Parfums"
+},
+{
+"id": 948,
+"parent_id": 146,
+"title": "Gesichtspflege",
+"path": "Damen > Beauty > Gesichtspflege"
+},
+{
+"id": 1906,
+"parent_id": 146,
+"title": "Beauty-Zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör"
+},
+{
+"id": 1903,
+"parent_id": 1906,
+"title": "Haarstyling-Zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör > Haarstyling-Zubehör"
+},
+{
+"id": 950,
+"parent_id": 1906,
+"title": "Gesichtspflege-Zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör > Gesichtspflege-Zubehör"
+},
+{
+"id": 958,
+"parent_id": 1906,
+"title": "Körperpflege-Zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör > Körperpflege-Zubehör"
+},
+{
+"id": 962,
+"parent_id": 1906,
+"title": "Nagelpflege & -zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör > Nagelpflege & -zubehör"
+},
+{
+"id": 967,
+"parent_id": 1906,
+"title": "Make-up-Zubehör",
+"path": "Damen > Beauty > Beauty-Zubehör > Make-up-Zubehör"
+},
+{
+"id": 1264,
+"parent_id": 146,
+"title": "Handpflege",
+"path": "Damen > Beauty > Handpflege"
+},
+{
+"id": 960,
+"parent_id": 146,
+"title": "Nagelpflege",
+"path": "Damen > Beauty > Nagelpflege"
+},
+{
+"id": 956,
+"parent_id": 146,
+"title": "Körperpflege",
+"path": "Damen > Beauty > Körperpflege"
+},
+{
+"id": 1902,
+"parent_id": 146,
+"title": "Haarpflege",
+"path": "Damen > Beauty > Haarpflege"
+},
+{
+"id": 153,
+"parent_id": 146,
+"title": "Sonstiges",
+"path": "Damen > Beauty > Sonstiges"
+}
+]

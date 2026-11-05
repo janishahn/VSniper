@@ -6,6 +6,8 @@ It runs as one container: the FastAPI app serves the web UI, scans saved searche
 
 Each 👍/👎 is stored with a one-line lesson about what drove it. The taste profile rebuilds itself at most once a day, once three new verdicts have arrived (or one has waited a week); newer verdicts reach the judge as examples until then. Once a day the bot also sends the best listing that scored just under the alert threshold, since alerts alone never show what it scores too low.
 
+Clothing buckets (Schuhe, Hosen, Ringe, …) are managed on the Buckets page. Each bucket covers chosen categories from Vinted's women's catalog and gets its own search and taste profile. A bucket with history is archived instead of deleted.
+
 ## Run it
 
 ```bash

@@ -6,6 +6,7 @@ import {
   Crosshair,
   Gauge,
   HardDrive,
+  Layers,
   LayoutGrid,
   Receipt,
   Search,
@@ -30,6 +31,7 @@ const groups = [
     links: [
       { to: '/my-taste', label: 'My Taste', icon: Shirt },
       { to: '/searches', label: 'Searches', icon: Search },
+      { to: '/buckets', label: 'Buckets', icon: Layers },
       { to: '/settings', label: 'Settings', icon: Settings },
     ],
   },

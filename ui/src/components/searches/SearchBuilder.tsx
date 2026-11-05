@@ -4,7 +4,7 @@ import { Play, X } from 'lucide-react';
 import { DecimalInput } from '../DecimalInput';
 import { ErrorText } from '../ErrorText';
 import { Modal } from '../ui';
-import { clothingItemLabel, clothingItems } from '../../lib/clothingItems';
+import { useBuckets } from '../../lib/clothingItems';
 import { formatBerlinDateTime } from '../../lib/datetime';
 import {
   applySizeFilter,
@@ -21,9 +21,8 @@ import {
   valuesFor,
 } from '../../lib/searchFilters';
 import type {
+  BucketRecord,
   ClothingItem,
-  SearchCategoryOption,
-  SearchCategoryOptions,
   SearchFilter,
   SearchRecord,
   SearchRunResult,
@@ -42,8 +41,8 @@ export type SearchFormState = {
 
 const filterModes: SearchFilter['mode'][] = ['include', 'exclude', 'range', 'exact'];
 
-function setCategoryAliases(form: SearchFormState, aliases: string[]): SearchFormState {
-  const values = unique(aliases);
+function setCategoryIds(form: SearchFormState, ids: string[]): SearchFormState {
+  const values = unique(ids);
   return {
     ...form,
     filters: replaceFilters(
@@ -55,47 +54,12 @@ function setCategoryAliases(form: SearchFormState, aliases: string[]): SearchFor
   };
 }
 
-type CategoryChoiceGroup = {
-  key: string;
-  primaryAlias: string;
-  aliases: string[];
-  catalogIds: string[];
-};
-
-function categoryIdsForAlias(option: SearchCategoryOption, alias: string): string[] {
-  return option.alias_catalog_ids?.[alias] ?? [alias];
+function bucketCategoryIds(bucket?: BucketRecord): string[] {
+  return bucket ? bucket.categories.map((category) => String(category.id)) : [];
 }
 
-function categoryGroupKey(ids: string[]): string {
-  return ids.length ? [...ids].sort().join('|') : '__unresolved__';
-}
-
-function groupCategoryAliases(option: SearchCategoryOption): CategoryChoiceGroup[] {
-  const groups = new Map<string, CategoryChoiceGroup>();
-  for (const alias of option.allowed_aliases) {
-    const catalogIds = categoryIdsForAlias(option, alias);
-    const key = categoryGroupKey(catalogIds);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.aliases.push(alias);
-      continue;
-    }
-    groups.set(key, { key, primaryAlias: alias, aliases: [alias], catalogIds });
-  }
-  return Array.from(groups.values());
-}
-
-function selectedCategoryGroupKeys(option: SearchCategoryOption, selectedAliases: string[]): Set<string> {
-  return new Set(selectedAliases.map((alias) => categoryGroupKey(categoryIdsForAlias(option, alias))));
-}
-
-function setDefaultCategoryAliases(
-  form: SearchFormState,
-  categoryOptions?: SearchCategoryOptions,
-  clothingItem: ClothingItem = form.clothing_item,
-): SearchFormState {
-  const defaults = categoryOptions?.[clothingItem]?.default_aliases ?? [];
-  return setCategoryAliases({ ...form, clothing_item: clothingItem }, defaults);
+function categoryTitle(path: string, id: number): string {
+  return path ? path.split(' > ').pop() ?? path : `#${id} (no longer on Vinted)`;
 }
 
 function setTokenFilter(
@@ -126,11 +90,8 @@ function setPriceCeiling(form: SearchFormState, value: string): SearchFormState 
   };
 }
 
-export function withDefaultCategoryFilter(
-  form: SearchFormState,
-  categoryOptions?: SearchCategoryOptions,
-): SearchFormState {
-  return valuesFor(form.filters, isCategoryFilter).length ? form : setDefaultCategoryAliases(form, categoryOptions);
+export function withDefaultCategoryFilter(form: SearchFormState, bucket?: BucketRecord): SearchFormState {
+  return valuesFor(form.filters, isCategoryFilter).length ? form : setCategoryIds(form, bucketCategoryIds(bucket));
 }
 
 export function formFromSearch(search: SearchRecord): SearchFormState {
@@ -216,26 +177,22 @@ function ChipEditor({
 
 function CategoryPicker({
   form,
-  categoryOptions,
+  bucket,
   onChange,
 }: {
   form: SearchFormState;
-  categoryOptions?: SearchCategoryOptions;
+  bucket?: BucketRecord;
   onChange: (form: SearchFormState) => void;
 }) {
-  const option = categoryOptions?.[form.clothing_item];
   const selected = valuesFor(form.filters, isCategoryFilter);
-  const visibleSelection = selected.length ? selected : option?.default_aliases ?? [];
-  const groupedChoices = option ? groupCategoryAliases(option) : [];
-  const selectedGroupKeys = option ? selectedCategoryGroupKeys(option, visibleSelection) : new Set<string>();
+  const allIds = bucketCategoryIds(bucket);
+  const visibleSelection = selected.length ? selected : allIds;
 
-  const toggleGroup = (group: CategoryChoiceGroup) => {
-    const aliasesInGroup = new Set(group.aliases);
-    const active = selectedGroupKeys.has(group.key);
-    const next = active
-      ? visibleSelection.filter((value) => !aliasesInGroup.has(value))
-      : [...visibleSelection.filter((value) => !aliasesInGroup.has(value)), group.primaryAlias];
-    onChange(setCategoryAliases(form, next));
+  const toggle = (id: string) => {
+    const next = visibleSelection.includes(id)
+      ? visibleSelection.filter((value) => value !== id)
+      : [...visibleSelection, id];
+    onChange(setCategoryIds(form, next));
   };
 
   return (
@@ -243,39 +200,34 @@ function CategoryPicker({
       <div className="row-between">
         <div>
           <h3>Vinted category</h3>
-          <p className="hint">Limits the search to these catalog sections so Vinted doesn't return other clothing.</p>
+          <p className="hint">Limits the search to these catalog sections of the bucket. Edit the bucket to add others.</p>
         </div>
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => onChange(setDefaultCategoryAliases(form, categoryOptions))}
-          disabled={!option}
+          onClick={() => onChange(setCategoryIds(form, allIds))}
+          disabled={!bucket}
         >
-          Use defaults
+          Use all
         </button>
       </div>
-      {!option ? (
+      {!bucket ? (
         <p className="state-line">Loading categories…</p>
       ) : (
-        <>
-          <div className="chips" role="group" aria-label="Categories">
-            {groupedChoices.map((group) => (
-              <button
-                type="button"
-                className="choice"
-                aria-pressed={selectedGroupKeys.has(group.key)}
-                key={group.key}
-                onClick={() => toggleGroup(group)}
-                title={group.aliases.length > 1 ? `Vinted catalog ID${group.catalogIds.length > 1 ? 's' : ''} ${group.catalogIds.join(', ')}: ${group.aliases.join(', ')}` : undefined}
-              >
-                {group.primaryAlias}{group.aliases.length > 1 ? ` +${group.aliases.length - 1}` : ''}
-              </button>
-            ))}
-          </div>
-          <p className="hint">
-            Defaults: {option.default_aliases.join(', ')} · {option.resolved_catalog_ids.length} Vinted catalog IDs
-          </p>
-        </>
+        <div className="chips" role="group" aria-label="Categories">
+          {bucket.categories.map((category) => (
+            <button
+              type="button"
+              className="choice"
+              aria-pressed={visibleSelection.includes(String(category.id))}
+              key={category.id}
+              onClick={() => toggle(String(category.id))}
+              title={category.path || undefined}
+            >
+              {categoryTitle(category.path, category.id)}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -283,14 +235,14 @@ function CategoryPicker({
 
 function GuidedFilterEditor({
   form,
-  categoryOptions,
+  bucket,
   onChange,
   onSyncSizes,
   isSyncingSizes,
   syncSizesError,
 }: {
   form: SearchFormState;
-  categoryOptions?: SearchCategoryOptions;
+  bucket?: BucketRecord;
   onChange: (form: SearchFormState) => void;
   onSyncSizes: () => void;
   isSyncingSizes: boolean;
@@ -303,7 +255,7 @@ function GuidedFilterEditor({
 
   return (
     <>
-      <CategoryPicker form={form} categoryOptions={categoryOptions} onChange={onChange} />
+      <CategoryPicker form={form} bucket={bucket} onChange={onChange} />
 
       <div className="builder-block builder-cols">
         <div className="stack">
@@ -464,7 +416,7 @@ function AdvancedFilterEditor({ filters, onChange }: { filters: SearchFilter[]; 
 
 export function SearchBuilderModal({
   form,
-  categoryOptions,
+  bucket,
   onChange,
   onClose,
   onSubmit,
@@ -475,7 +427,7 @@ export function SearchBuilderModal({
   syncSizesError,
 }: {
   form: SearchFormState;
-  categoryOptions?: SearchCategoryOptions;
+  bucket?: BucketRecord;
   onChange: (form: SearchFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
@@ -487,8 +439,7 @@ export function SearchBuilderModal({
 }) {
   const issues = validationIssues(form);
   const advancedFilters = useMemo(() => form.filters.filter((filter) => !isGuidedFilter(filter)), [form.filters]);
-  const selectedItem = clothingItems.find((item) => item.value === form.clothing_item);
-  const searchLabel = clothingItemLabel(form.clothing_item);
+  const searchLabel = bucket?.label ?? form.clothing_item;
 
   const setAdvancedFilters = (nextAdvanced: SearchFilter[]) => {
     onChange({ ...form, filters: [...form.filters.filter(isGuidedFilter), ...nextAdvanced] });
@@ -498,7 +449,7 @@ export function SearchBuilderModal({
     <Modal
       label={`Edit ${searchLabel} search`}
       title={`${searchLabel} search`}
-      sub={selectedItem ? `${selectedItem.description} · vinted.de` : undefined}
+      sub={bucket?.description ? `${bucket.description} · vinted.de` : 'vinted.de'}
       onClose={onClose}
       locked={isPending}
       size="lg"
@@ -537,7 +488,7 @@ export function SearchBuilderModal({
 
       <GuidedFilterEditor
         form={form}
-        categoryOptions={categoryOptions}
+        bucket={bucket}
         onChange={onChange}
         onSyncSizes={onSyncSizes}
         isSyncingSizes={isSyncingSizes}
@@ -586,7 +537,12 @@ export function SearchCard({
     toggle: boolean;
   };
 }) {
-  const categoryValues = valuesFor(search.filters, isCategoryFilter);
+  const { buckets } = useBuckets();
+  const bucketCategories = buckets.find((bucket) => bucket.key === search.clothing_item)?.categories ?? [];
+  const categoryValues = valuesFor(search.filters, isCategoryFilter).map((value) => {
+    const category = bucketCategories.find((item) => String(item.id) === value);
+    return category ? categoryTitle(category.path, category.id) : value;
+  });
   const sizeValues = valuesFor(search.filters, isSizeFilter);
   const preferValues = valuesFor(search.filters, isPreferKeywordFilter);
   const avoidValues = valuesFor(search.filters, isAvoidKeywordFilter);

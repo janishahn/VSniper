@@ -10,7 +10,6 @@ from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
 from time import perf_counter
-from typing import cast
 from uuid import uuid4
 
 import httpx
@@ -20,10 +19,9 @@ from sqlalchemy.orm import Session
 
 from vsniper.core.config import Settings
 from vsniper.core.database import session_scope
-from vsniper.db.models import AppSettingsState, Candidate, LearningSnapshotState, TasteSampleState, TasteState
+from vsniper.db.models import AppSettingsState, Bucket, Candidate, LearningSnapshotState, TasteSampleState, TasteState
 from vsniper.domain.contracts import (
     CandidateFeature,
-    CLOTHING_ITEM_LABELS,
     ClothingItem,
     JudgmentPromptPreview,
     LabeledExample,
@@ -51,6 +49,7 @@ from vsniper.services._mapping import (
     taste_sample_to_contract,
     taste_state_to_snapshot,
 )
+from vsniper.services.bucket_service import bucket_records, require_active_bucket
 from vsniper.services.error_service import ErrorService
 
 
@@ -177,6 +176,8 @@ class TasteService:
         note: str,
         clothing_item: ClothingItem,
     ) -> TasteSample:
+        with session_scope() as session:
+            require_active_bucket(session, clothing_item)
         normalized_name = Path(file_name).name.strip()
         if not normalized_name:
             raise ValueError("Uploaded image must include a file name.")
@@ -218,6 +219,8 @@ class TasteService:
     def add_offer(self, payload: TasteOfferCreate) -> TasteSample:
         if not payload.vinted_url or not payload.vinted_url.strip():
             raise ValueError("Vinted URL is required.")
+        with session_scope() as session:
+            require_active_bucket(session, payload.clothing_item)
         item_id = VintedClient._item_id_from_url(payload.vinted_url)
         listing, candidate_id = self._listing_from_candidate(item_id)
         if listing is None:
@@ -329,6 +332,7 @@ class TasteService:
             if payload.kind is not None:
                 sample.kind = payload.kind
             if payload.clothing_item is not None:
+                require_active_bucket(session, payload.clothing_item)
                 sample.clothing_item = payload.clothing_item
             sample.updated_at = datetime.now(UTC)
             session.flush()
@@ -442,7 +446,7 @@ class TasteService:
                         image_id=f"{sample.id}:0",
                         file_name=f"{sample.id}-0{first_path.suffix}",
                         image_bytes=content,
-                        clothing_item=cast(ClothingItem, candidate.clothing_item),
+                        clothing_item=candidate.clothing_item,
                         content_hash=self._content_hash(content),
                     )
                     self._replace_cached_observation(
@@ -632,7 +636,7 @@ class TasteService:
         cache_root = self.settings.resolve_path(self.settings.cache_dir)
         asset_root = self._feedback_asset_dir()
         for sample in samples:
-            clothing_item = cast(ClothingItem, sample.clothing_item)
+            clothing_item = sample.clothing_item
             if sample.storage_path:
                 path = upload_root / sample.storage_path
                 if path.exists():
@@ -772,7 +776,7 @@ class TasteService:
         lesson = listing.get("feedback_lesson")
         return LabeledExample(
             candidate_id=sample.candidate_id or sample.id,
-            clothing_item=cast(ClothingItem, sample.clothing_item),
+            clothing_item=sample.clothing_item,
             verdict="like" if sample.kind in {"wardrobe", "offer_like"} else "dislike",
             title=sample.title or sample.file_name or sample.id,
             brand=sample.brand or "",
@@ -785,15 +789,10 @@ class TasteService:
         )
 
     @staticmethod
-    def _fallback_taste_profile(
-        snapshot: TasteSnapshot | None = None,
-        *,
-        clothing_item: ClothingItem | None = None,
-    ) -> TasteProfile:
+    def _fallback_taste_profile(snapshot: TasteSnapshot | None = None) -> TasteProfile:
         manual_note = snapshot.manual_note.text if snapshot is not None else ""
-        item_label = CLOTHING_ITEM_LABELS[clothing_item] if clothing_item else "clothing"
         prompt = manual_note or (
-            f"User has not generated a {item_label} taste profile yet. Be conservative and prefer distinctive vintage clothing."
+            "User has not generated a taste profile yet. Be conservative and prefer distinctive vintage clothing."
         )
         return TasteProfile(
             version=1,
@@ -839,10 +838,10 @@ class TasteService:
     ) -> TasteProfile:
         if session is not None:
             snapshot = self._snapshot_in_session(session)
-            return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot, clothing_item=clothing_item)
+            return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot)
         with session_scope() as owned_session:
             snapshot = self._snapshot_in_session(owned_session)
-            return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot, clothing_item=clothing_item)
+            return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot)
 
     def latest_labeled_anchors(
         self,
@@ -909,6 +908,10 @@ class TasteService:
             note_updated_at = as_aware(state.manual_note_updated_at)
             if note_updated_at is not None and note_updated_at > profiled_at:
                 changes += 1
+            # A new bucket or an edited bucket definition changes what the profile must cover.
+            changes += session.scalar(
+                select(func.count()).select_from(Bucket).where(Bucket.updated_at > profiled_at)
+            ) or 0
         if changes == 0 or (changes < AUTO_RECOMPUTE_MIN_CHANGES and now - profiled_at < AUTO_RECOMPUTE_MAX_WAIT):
             return None
         claim = self.claim_recompute(source="auto")
@@ -1059,6 +1062,8 @@ class TasteService:
             # stays newer than `last_recomputed_at`, so it remains an anchor and counts as a change.
             evidence_at = datetime.now(UTC)
             samples = session.scalars(select(TasteSampleState).order_by(TasteSampleState.created_at.asc())).all()
+            buckets = bucket_records(session)
+            bucket_labels = {bucket.key: bucket.label for bucket in bucket_records(session, include_archived=True)}
             previous_profile = TasteProfile.model_validate(state.taste_profile) if state.taste_profile else None
             image_inputs = self._sample_image_inputs(samples)
             samples_by_id = {sample.id: sample for sample in samples}
@@ -1112,6 +1117,7 @@ class TasteService:
                     )
                     batch_observations = self.taste_client.describe_reference_images(
                         [(item.image_id, item.file_name, item.image_bytes, item.clothing_item) for item in batch],
+                        bucket_labels=bucket_labels,
                         on_usage=_track,
                     )
                     fresh_observations.extend(batch_observations)
@@ -1145,7 +1151,7 @@ class TasteService:
             disliked_examples = [self._sample_to_example(sample) for sample in samples if sample.kind == "offer_dislike"]
             notes = [state.manual_note] if state.manual_note.strip() else []
             notes.extend(
-                f"{CLOTHING_ITEM_LABELS[sample.clothing_item]}: {sample.note.strip()}"
+                f"{bucket_labels.get(sample.clothing_item, sample.clothing_item)}: {sample.note.strip()}"
                 for sample in samples
                 if sample.note.strip()
             )
@@ -1175,6 +1181,7 @@ class TasteService:
             liked_examples=liked_examples,
             disliked_examples=disliked_examples,
             previous_profile=previous_profile,
+            buckets=buckets,
             default_region=default_region,
             on_usage=_track,
         )

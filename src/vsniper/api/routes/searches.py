@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, status
 
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import (
-    SearchCategoryOption,
     SearchRecord,
     SearchRunResult,
     SearchUpdate,
@@ -28,11 +27,6 @@ def _reject_if_maintenance() -> None:
 @router.get("/searches", response_model=list[SearchRecord])
 def list_searches() -> list[SearchRecord]:
     return get_state().searches.all()
-
-
-@router.get("/searches/category-options", response_model=dict[str, SearchCategoryOption])
-def search_category_options() -> dict[str, SearchCategoryOption]:
-    return get_state().searches.category_options()
 
 
 @router.put("/searches/{search_id}", response_model=SearchRecord)

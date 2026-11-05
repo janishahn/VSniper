@@ -159,6 +159,8 @@ def update_sample(sample_id: str, payload: TasteSampleUpdate) -> TasteSample:
         return get_state().taste.update_sample(sample_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Taste sample not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/taste/samples/{sample_id}", response_model=TasteSample)

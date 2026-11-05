@@ -53,7 +53,7 @@ def test_sizes_resolve_without_listing_constraints(monkeypatch) -> None:
         filters=[
             SearchFilter(field='price', label='Price', values=['30'], mode='range'),
             SearchFilter(field='size', label='Size', values=['W32 | DE 48', 'W33 | DE 48'], mode='include'),
-            SearchFilter(field='category', label='Category', values=['hosen'], mode='include'),
+            SearchFilter(field='category', label='Category', values=['9'], mode='include'),
         ],
         last_run_at=None, last_found_count=0,
     )
@@ -131,7 +131,7 @@ def test_search_uses_api_host_after_legacy_404(monkeypatch) -> None:
     search = SearchRecord(
         id='search-hosen', name='Cargo', enabled=True, clothing_item='hosen', query='cargo', region='de',
         filters=[
-            SearchFilter(field='category', label='Category', values=['hosen'], mode='include'),
+            SearchFilter(field='category', label='Category', values=['9'], mode='include'),
             SearchFilter(field='colour', label='Colour', values=['black'], mode='include'),
             SearchFilter(field='condition', label='Condition', values=['very good'], mode='include'),
             SearchFilter(field='material', label='Material', values=['wool'], mode='include'),
@@ -191,7 +191,7 @@ def test_filter_lookup_uses_gateway_after_404(monkeypatch, field, operation) -> 
         filters=[
             SearchFilter(field='price', label='Price', values=['30'], mode='range'),
             SearchFilter(field=field, label=field, values=['M'], mode='include'),
-            SearchFilter(field='category', label='Category', values=['hosen'], mode='include'),
+            SearchFilter(field='category', label='Category', values=['9'], mode='include'),
         ],
         last_run_at=None, last_found_count=0,
     )

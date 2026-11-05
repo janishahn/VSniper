@@ -14,6 +14,7 @@ import {
   withDefaultCategoryFilter,
 } from '../components/searches/SearchBuilder';
 import { api } from '../lib/api';
+import { useBuckets } from '../lib/clothingItems';
 import { queryKeys } from '../lib/queryKeys';
 import { applySizeFilter } from '../lib/searchFilters';
 import type { SearchRecord, SearchUpdatePayload } from '../types';
@@ -24,7 +25,8 @@ export function SearchesPage() {
   const queryClient = useQueryClient();
   const searchesQuery = useQuery({ queryKey: queryKeys.searches, queryFn: api.getSearches, refetchInterval: 30_000 });
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
-  const categoryOptionsQuery = useQuery({ queryKey: queryKeys.searchCategoryOptions, queryFn: api.getSearchCategoryOptions });
+  const { query: bucketsQuery, buckets } = useBuckets();
+  const bucketFor = (key: string) => buckets.find((bucket) => bucket.key === key);
   const [builder, setBuilder] = useState<BuilderState | null>(null);
   const [builderError, setBuilderError] = useState<string | null>(null);
 
@@ -34,7 +36,7 @@ export function SearchesPage() {
   };
 
   const openEditBuilder = (search: SearchRecord) => {
-    setBuilder({ searchId: search.id, form: withDefaultCategoryFilter(formFromSearch(search), categoryOptionsQuery.data) });
+    setBuilder({ searchId: search.id, form: withDefaultCategoryFilter(formFromSearch(search), bucketFor(search.clothing_item)) });
     setBuilderError(null);
   };
 
@@ -139,7 +141,7 @@ export function SearchesPage() {
     <div className="page">
       {header}
 
-      <ErrorText error={categoryOptionsQuery.error} prefix="Category metadata failed to load" />
+      <ErrorText error={bucketsQuery.error} prefix="Buckets failed to load" />
       <ErrorText error={runAllMutation.error} prefix="Run all failed" />
       <ErrorText error={applySizesMutation.error} prefix="Size sync failed" />
       {applySizesMutation.isSuccess ? (
@@ -185,7 +187,7 @@ export function SearchesPage() {
       {builder ? (
         <SearchBuilderModal
           form={builder.form}
-          categoryOptions={categoryOptionsQuery.data}
+          bucket={bucketFor(builder.form.clothing_item)}
           onChange={updateBuilderForm}
           onClose={closeBuilder}
           onSubmit={submitBuilder}

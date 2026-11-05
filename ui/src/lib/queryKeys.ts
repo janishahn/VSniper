@@ -9,7 +9,8 @@ export const queryKeys = {
   errors: (params: { source: string; offset: number; limit: number }) =>
     ['errors', params.source, params.offset, params.limit] as const,
   searches: ['searches'] as const,
-  searchCategoryOptions: ['search-category-options'] as const,
+  buckets: ['buckets'] as const,
+  vintedCatalog: ['vinted-catalog'] as const,
   taste: ['taste'] as const,
   judgmentPrompt: (clothingItem: string) => ['judgment-prompt', clothingItem] as const,
   candidates: ['candidates'] as const,

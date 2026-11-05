@@ -2,7 +2,7 @@
 
 The key behavior under test: a user's flat Vinted account size list mixes shoe sizes,
 trouser sizes, and shirt sizes together. apply_profile_sizes_to_all must split that list
-by clothing item (via clothing_items_for_size_group) and write only the relevant sizes onto
+by bucket (via each bucket's size keywords) and write only the relevant sizes onto
 each search, instead of blasting the same full list onto every search regardless of category.
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import AppSettingsState, Search, TasteState
+from vsniper.db.models import AppSettingsState, Bucket, Search, TasteState
 from vsniper.domain.contracts import GeneratedSearchDraft, SearchFilter, TasteProfile
 from vsniper.services.search_service import SearchService
 
@@ -46,6 +46,11 @@ def _setup(monkeypatch, tmp_path, *, grouped_sizes):
 
     with fake_session_scope() as session:
         session.add(AppSettingsState(id=1, vinted_region="de"))
+        session.add(Bucket(key="schuhe", label="Schuhe", catalog_ids=[16, 2632], size_keywords=["schuhe"]))
+        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9], size_keywords=["hose"]))
+        session.add(Bucket(key="kopf", label="Kopf", catalog_ids=[88], size_keywords=["hut", "muetze"]))
+        session.add(Bucket(key="obenrum_warm", label="Obenrum Warm", catalog_ids=[12], size_keywords=["shirt", "kleidergroesse"]))
+        session.add(Bucket(key="obenrum_mittel", label="Obenrum Mittel", catalog_ids=[13], size_keywords=["shirt", "kleidergroesse"]))
         session.add(Search(id="search-schuhe", name="Schuhe", clothing_item="schuhe", query="q", region="de", run_status="idle"))
         session.add(Search(id="search-hosen", name="Hosen", clothing_item="hosen", query="q", region="de", run_status="idle"))
         session.add(Search(id="search-kopf", name="Kopf", clothing_item="kopf", query="q", region="de", run_status="idle"))
@@ -93,7 +98,7 @@ def test_apply_generated_drafts_preserves_the_user_price_ceiling(monkeypatch, tm
     service, factory = _setup(monkeypatch, tmp_path, grouped_sizes=[])
     existing_price = SearchFilter(field="price", label="Maximum price", values=["20"], mode="range")
     draft_price = SearchFilter(field="price", label="Maximum price", values=["80"], mode="range")
-    draft_category = SearchFilter(field="category", label="Vinted category", values=["sneakers"], mode="include")
+    draft_category = SearchFilter(field="category", label="Vinted category", values=["2632"], mode="include")
     profile = TasteProfile(
         version=4,
         summary="",

@@ -19,7 +19,6 @@ from vsniper.db.models import (
 )
 from vsniper.domain.contracts import (
     CandidateRecord,
-    CLOTHING_ITEM_LABELS,
     LearningSnapshot,
     SearchRecord,
     SessionHealth,
@@ -111,16 +110,12 @@ def search_to_record(model: Search, *, default_alert_threshold: int = 95) -> Sea
         model.alert_threshold,
         fallback=_coerce_alert_threshold(default_alert_threshold),
     )
-    clothing_item = model.clothing_item
-    name = model.name
-    if clothing_item in CLOTHING_ITEM_LABELS:
-        name = CLOTHING_ITEM_LABELS[clothing_item]
     return SearchRecord.model_validate(
         {
             "id": model.id,
-            "name": name,
+            "name": model.name,
             "enabled": model.enabled,
-            "clothing_item": clothing_item,
+            "clothing_item": model.clothing_item,
             "query": model.query,
             "region": model.region,
             "filters": model.filters or [],

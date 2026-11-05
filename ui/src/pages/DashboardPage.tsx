@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Download, Pause, Play, Upload } from 'lucide-react';
 
 import { api } from '../lib/api';
-import { clothingItemLabel } from '../lib/clothingItems';
+import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { decodeJwtExpiry, decodeRefreshTokenExpiry, formatCookieExpiry } from '../lib/jwt';
 import { queryKeys } from '../lib/queryKeys';
@@ -152,6 +152,7 @@ function BackupSection() {
 
 function WorkerSection({ ops }: { ops: OperationsSnapshot }) {
   const queryClient = useQueryClient();
+  const { clothingItemLabel } = useBuckets();
   const isPaused = ops.maintenance_mode !== 'idle';
 
   const pauseMutation = useMutation({

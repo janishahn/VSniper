@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StringConstraints, field_validator
 
 
 MaintenanceMode = Literal["idle", "manual", "import"]
@@ -11,27 +11,8 @@ ScanMode = Literal["preview", "live"]
 ExtractionStatus = Literal["pending", "completed", "failed"]
 DeliveryStatus = Literal["not_queued", "pending", "processing", "sent", "failed"]
 TasteSampleKind = Literal["wardrobe", "offer_like", "offer_dislike", "offer_note"]
-ClothingItem = Literal["schuhe", "hosen", "obenrum_warm", "obenrum_mittel", "obenrum_kalt", "kopf", "ringe"]
-
-CLOTHING_ITEM_LABELS: dict[ClothingItem, str] = {
-    "schuhe": "Schuhe",
-    "hosen": "Hosen",
-    "obenrum_warm": "Obenrum Warm",
-    "obenrum_mittel": "Obenrum Mittel",
-    "obenrum_kalt": "Obenrum Kalt",
-    "kopf": "Kopf",
-    "ringe": "Ringe",
-}
-
-CLOTHING_ITEM_DESCRIPTIONS: dict[ClothingItem, str] = {
-    "schuhe": "Shoes and sneakers.",
-    "hosen": "Trousers, jeans, cargos, shorts, and other legwear.",
-    "obenrum_warm": "Warm-weather tops such as T-shirts and short-sleeve shirts.",
-    "obenrum_mittel": "Medium-layer tops such as longsleeves and light pullovers.",
-    "obenrum_kalt": "Cold-weather upper-body pieces such as heavy pullovers and jackets.",
-    "kopf": "Headwear, especially funny or weird baseball caps.",
-    "ringe": "Rings worn on the fingers.",
-}
+# A bucket key: a slug from the `buckets` table. Services check that the bucket exists.
+ClothingItem = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 
 
 class SearchFilter(BaseModel):
@@ -41,13 +22,47 @@ class SearchFilter(BaseModel):
     mode: Literal["include", "exclude", "range", "exact"] = "include"
 
 
-class SearchCategoryOption(BaseModel):
+class VintedCatalogNode(BaseModel):
+    id: int
+    parent_id: int | None
+    title: str
+    path: str
+
+
+class BucketCategory(BaseModel):
+    id: int
+    # Empty when the id is no longer in the current Vinted catalog snapshot.
+    path: str
+
+
+class BucketRecord(BaseModel):
+    key: ClothingItem
     label: str
     description: str
-    default_aliases: list[str]
-    allowed_aliases: list[str]
-    alias_catalog_ids: dict[str, list[str]] = Field(default_factory=dict)
-    resolved_catalog_ids: list[str]
+    categories: list[BucketCategory]
+    size_keywords: list[str]
+    position: int
+    archived: bool
+
+
+class BucketWrite(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=500)
+    catalog_ids: list[int] = Field(min_length=1)
+    size_keywords: list[str] = Field(default_factory=list)
+
+
+class BucketCreate(BucketWrite):
+    key: ClothingItem
+
+
+class BucketUpdate(BucketWrite):
+    archived: bool = False
+
+
+class BucketDeleteResult(BaseModel):
+    key: str
+    outcome: Literal["deleted", "archived"]
 
 
 class SearchRecord(BaseModel):

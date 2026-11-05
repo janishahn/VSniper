@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImagePlus, Link2, Plus, RefreshCw, ThumbsDown, ThumbsUp, Upload, X } from 'lucide-react';
 
 import { api, ApiError } from '../lib/api';
-import { clothingItemLabel, clothingItems } from '../lib/clothingItems';
+import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -86,6 +86,7 @@ function UploadModal({
   onUploadFile: (file: File, note: string) => Promise<unknown>;
   clothingItem: ClothingItem;
 }) {
+  const { clothingItemLabel } = useBuckets();
   const [files, setFiles] = useState<File[]>([]);
   const [note, setNote] = useState('');
   const [dragging, setDragging] = useState(false);
@@ -230,7 +231,8 @@ function AddOfferModal({
 }) {
   const [url, setUrl] = useState('');
   const [kind, setKind] = useState<OfferKind>('offer_like');
-  const [clothingItem, setClothingItem] = useState<ClothingItem>('hosen');
+  const { clothingItems } = useBuckets();
+  const [clothingItem, setClothingItem] = useState<ClothingItem>(() => clothingItems[0]?.value ?? '');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -337,6 +339,7 @@ function SampleDetailModal({
   error: unknown;
 }) {
   const [note, setNote] = useState(sample.note);
+  const { clothingItems, clothingItemLabel } = useBuckets();
   const [clothingItem, setClothingItem] = useState<ClothingItem>(sample.clothing_item);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isOffer = sample.kind === 'offer_like' || sample.kind === 'offer_dislike';
@@ -785,6 +788,7 @@ function DraftCompareModal({
   isPending: boolean;
   error: unknown;
 }) {
+  const { clothingItemLabel } = useBuckets();
   const diffs = useMemo(
     () => filterDiffs(search.filters, withoutDraftPriceFilters(draft.filters))
       .filter((diff) => diff.key !== 'size' && diff.key !== 'price:range'),
@@ -1187,7 +1191,8 @@ export function MyTastePage() {
   });
   const [uploadOpen, setUploadOpen] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
-  const [uploadTargetItem, setUploadTargetItem] = useState<ClothingItem>('hosen');
+  const { query: bucketsQuery, clothingItems, clothingItemLabel } = useBuckets();
+  const [uploadTargetItem, setUploadTargetItem] = useState<ClothingItem>('');
   const [zipImportNotice, setZipImportNotice] = useState<string | null>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [manualNote, setManualNote] = useState('');
@@ -1208,12 +1213,15 @@ export function MyTastePage() {
     setManualNote(tasteQuery.data.manual_note.text);
   }, [tasteQuery.data?.manual_note.text]);
 
-  const [selectedProfileItem, setSelectedProfileItem] = useState<ClothingItem>('hosen');
+  const [chosenProfileItem, setSelectedProfileItem] = useState<ClothingItem>('');
+  const selectedProfileItem = clothingItems.some((item) => item.value === chosenProfileItem)
+    ? chosenProfileItem
+    : clothingItems[0]?.value ?? '';
 
   const judgmentPromptQuery = useQuery({
     queryKey: queryKeys.judgmentPrompt(selectedProfileItem),
     queryFn: () => api.getJudgmentPrompt(selectedProfileItem),
-    enabled: !!tasteQuery.data?.taste_profile,
+    enabled: !!tasteQuery.data?.taste_profile && !!selectedProfileItem,
   });
 
   const invalidate = () => {
@@ -1296,7 +1304,7 @@ export function MyTastePage() {
       grouped.wardrobe.filter((sample) => sample.clothing_item === item.value),
     ] as const);
     return Object.fromEntries(entries) as Record<ClothingItem, TasteSample[]>;
-  }, [grouped.wardrobe]);
+  }, [grouped.wardrobe, bucketsQuery.data]);
 
   if (tasteQuery.isLoading) return <div className="page"><PageHeader title="My Taste" /><Loading label="Loading taste…" /></div>;
   if (tasteQuery.isError || !tasteQuery.data) {

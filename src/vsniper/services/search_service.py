@@ -21,11 +21,9 @@ from vsniper.core.config import Settings
 from vsniper.core.database import session_scope
 from vsniper.db.models import AppSettingsState, Candidate, Search
 from vsniper.domain.contracts import (
-    CLOTHING_ITEM_LABELS,
     LabeledExample,
     ScanMode,
     ScoreTrace,
-    SearchCategoryOption,
     SearchDraftApplyResult,
     SearchFilter,
     SearchRecord,
@@ -50,11 +48,7 @@ from vsniper.integrations.openai.client import (
 from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.integrations._retry import retry_transient
 from vsniper.integrations.vinted.client import VintedClient, VintedClientError, VintedSearchError, VintedSessionError
-from vsniper.integrations.vinted.categories import (
-    category_options_by_clothing_item,
-    clothing_items_for_size_group,
-    ensure_category_filter_for_clothing_item,
-)
+from vsniper.integrations.vinted.categories import buckets_for_size_group, ensure_category_filter
 from vsniper.services._mapping import (
     as_aware,
     build_session_health,
@@ -70,7 +64,7 @@ from vsniper.services.operations_service import (
     create_search_run,
     finish_search_run,
 )
-from vsniper.services.search_defaults import CANONICAL_SEARCH_ORDER
+from vsniper.services.bucket_service import bucket_records, require_bucket
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
 
@@ -199,11 +193,10 @@ class SearchService:
     def all(self) -> list[SearchRecord]:
         with session_scope() as session:
             settings = self._get_settings_state(session)
-            records = session.scalars(select(Search)).all()
-            ordered = sorted(
-                records,
-                key=lambda item: (CANONICAL_SEARCH_ORDER.get(item.clothing_item, len(CANONICAL_SEARCH_ORDER)), item.created_at),
-            )
+            # Searches of archived buckets stay stored (disabled) but are hidden.
+            position = {bucket.key: index for index, bucket in enumerate(bucket_records(session))}
+            records = [item for item in session.scalars(select(Search)).all() if item.clothing_item in position]
+            ordered = sorted(records, key=lambda item: (position[item.clothing_item], item.created_at))
             return [search_to_record(item, default_alert_threshold=settings.alert_threshold) for item in ordered]
 
     def update(self, search_id: str, payload: SearchUpdate) -> SearchRecord:
@@ -215,9 +208,8 @@ class SearchService:
                 raise SearchClothingItemImmutable(
                     "A saved search is fixed to its clothing bucket. Edit the target bucket's existing search instead."
                 )
-            filters = ensure_category_filter_for_clothing_item(payload.filters, model.clothing_item, strict=True)
+            filters = ensure_category_filter(payload.filters, require_bucket(session, model.clothing_item), strict=True)
 
-            model.name = CLOTHING_ITEM_LABELS.get(model.clothing_item, model.name)
             model.query = payload.query
             model.region = payload.region
             model.filters = [item.model_dump(mode="json") for item in filters]
@@ -252,11 +244,12 @@ class SearchService:
     def apply_profile_sizes_to_all(self) -> VintedSizesResult:
         with session_scope() as session:
             region = self._get_settings_state(session).vinted_region
+            buckets = bucket_records(session)
         grouped = self.vinted_client.fetch_user_sizes_grouped(region=region)
         sizes_by_item: dict[str, list[str]] = {}
         unmapped_descriptions: set[str] = set()
         for entry in grouped:
-            items = clothing_items_for_size_group(entry["group_description"])
+            items = buckets_for_size_group(entry["group_description"], buckets)
             if not items:
                 unmapped_descriptions.add(entry["group_description"])
                 continue
@@ -283,12 +276,6 @@ class SearchService:
         flat_sizes = sorted({entry["title"] for entry in grouped})
         return VintedSizesResult(sizes=flat_sizes, region=region)
 
-    def category_options(self) -> dict[str, SearchCategoryOption]:
-        return {
-            clothing_item: SearchCategoryOption.model_validate(options)
-            for clothing_item, options in category_options_by_clothing_item().items()
-        }
-
     def apply_generated_search_drafts(self, profile_version: int | None = None) -> SearchDraftApplyResult:
         with session_scope() as session:
             state = self.preferences.get_taste_state(session)
@@ -312,9 +299,10 @@ class SearchService:
             applied: list[str] = []
             unchanged: list[str] = []
             skipped: list[str] = []
+            buckets = {bucket.key: bucket for bucket in bucket_records(session)}
             for draft in profile.generated_searches:
                 search = session.scalar(select(Search).where(Search.clothing_item == draft.clothing_item).limit(1))
-                if search is None:
+                if search is None or draft.clothing_item not in buckets:
                     skipped.append(draft.clothing_item)
                     continue
                 # Preserve user-owned sizes and budget — taste drafts only describe what to find.
@@ -325,18 +313,13 @@ class SearchService:
                 draft_filters = [
                     f for f in draft.filters if f.field.strip().lower() != "size" and not _is_price_filter(f)
                 ]
-                filters = ensure_category_filter_for_clothing_item(draft_filters, draft.clothing_item, strict=True)
+                filters = ensure_category_filter(draft_filters, buckets[draft.clothing_item], strict=False)
                 filter_payload = [
                     *existing_size_filters,
                     *existing_price_filters,
                     *(item.model_dump(mode="json") for item in filters),
                 ]
-                changed = (
-                    search.name != CLOTHING_ITEM_LABELS.get(search.clothing_item, search.name)
-                    or search.query != draft.query
-                    or (search.filters or []) != filter_payload
-                )
-                search.name = CLOTHING_ITEM_LABELS.get(search.clothing_item, search.name)
+                changed = search.query != draft.query or (search.filters or []) != filter_payload
                 search.query = draft.query
                 # Preserve existing region — taste drafts shouldn't override per-search region
                 search.filters = filter_payload
@@ -820,9 +803,9 @@ class SearchService:
             search_record = search_to_record(search, default_alert_threshold=db_settings.alert_threshold)
             search_record = search_record.model_copy(
                 update={
-                    "filters": ensure_category_filter_for_clothing_item(
+                    "filters": ensure_category_filter(
                         search_record.filters,
-                        search_record.clothing_item,
+                        require_bucket(session, search_record.clothing_item),
                         strict=False,
                     )
                 }

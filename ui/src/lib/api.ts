@@ -1,5 +1,9 @@
 import type {
   AiCostStats,
+  BucketCreate,
+  BucketDeleteResult,
+  BucketRecord,
+  BucketUpdate,
   BackupImportResult,
   CacheClearResult,
   CandidatePage,
@@ -13,7 +17,6 @@ import type {
   OperationsSnapshot,
   ScoreDistribution,
   ScoreDistributionWindow,
-  SearchCategoryOptions,
   SearchRecord,
   SearchRunPage,
   SearchRunResult,
@@ -24,6 +27,7 @@ import type {
   TasteSample,
   TasteSnapshot,
   VintedBrandOption,
+  VintedCatalogNode,
   VintedSizesResult,
   WardrobeZipImportResult,
 } from '../types';
@@ -181,7 +185,14 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   getSearches: () => request<SearchRecord[]>('/api/searches'),
-  getSearchCategoryOptions: () => request<SearchCategoryOptions>('/api/searches/category-options'),
+  getBuckets: () => request<BucketRecord[]>('/api/buckets'),
+  createBucket: (payload: BucketCreate) =>
+    request<BucketRecord>('/api/buckets', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBucket: (key: string, payload: BucketUpdate) =>
+    request<BucketRecord>(`/api/buckets/${key}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteBucket: (key: string) => request<BucketDeleteResult>(`/api/buckets/${key}`, { method: 'DELETE' }),
+  getVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog'),
+  refreshVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog/refresh', { method: 'POST' }),
   updateSearch: (searchId: string, payload: SearchUpdatePayload) =>
     request<SearchRecord>(`/api/searches/${searchId}`, {
       method: 'PUT',

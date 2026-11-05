@@ -8,6 +8,25 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from vsniper.core.database import Base
 
 
+class Bucket(Base):
+    """A clothing bucket. Its key is fixed: samples, searches and candidates reference it."""
+
+    __tablename__ = "buckets"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # Vinted women's catalog ids this bucket covers; searches and drafts pick from these.
+    catalog_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
+    # Fragments matched against Vinted size-group descriptions to apply account sizes.
+    size_keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    # Label/description/category edits; a change after the last recompute is a taste change.
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class Search(Base):
     __tablename__ = "searches"
     __table_args__ = (UniqueConstraint("clothing_item", name="uq_searches_clothing_item"),)

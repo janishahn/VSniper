@@ -1,15 +1,21 @@
-import type { ClothingItem } from '../types';
+import { useQuery } from '@tanstack/react-query';
 
-export const clothingItems: { value: ClothingItem; label: string; description: string }[] = [
-  { value: 'schuhe', label: 'Schuhe', description: 'Shoes and sneakers' },
-  { value: 'hosen', label: 'Hosen', description: 'Trousers, jeans, cargos, shorts' },
-  { value: 'obenrum_warm', label: 'Obenrum Warm', description: 'T-shirts and short-sleeve shirts' },
-  { value: 'obenrum_mittel', label: 'Obenrum Mittel', description: 'Longsleeves and light pullovers' },
-  { value: 'obenrum_kalt', label: 'Obenrum Kalt', description: 'Heavy pullovers and jackets' },
-  { value: 'kopf', label: 'Kopf', description: 'Funny or weird baseball caps' },
-  { value: 'ringe', label: 'Ringe', description: 'Rings worn on the fingers' },
-];
+import { api } from './api';
+import { queryKeys } from './queryKeys';
+import type { BucketRecord, ClothingItem } from '../types';
 
-export function clothingItemLabel(value: ClothingItem): string {
-  return clothingItems.find((item) => item.value === value)?.label ?? value;
+export type ClothingItemOption = { value: ClothingItem; label: string; description: string };
+
+// Buckets come from /api/buckets. Archived ones keep their label for history but are not offered as choices.
+export function useBuckets() {
+  const query = useQuery({ queryKey: queryKeys.buckets, queryFn: api.getBuckets });
+  const all: BucketRecord[] = query.data ?? [];
+  const active = all.filter((bucket) => !bucket.archived);
+  const clothingItems: ClothingItemOption[] = active.map((bucket) => ({
+    value: bucket.key,
+    label: bucket.label,
+    description: bucket.description,
+  }));
+  const clothingItemLabel = (value: ClothingItem) => all.find((bucket) => bucket.key === value)?.label ?? value;
+  return { query, buckets: all, activeBuckets: active, clothingItems, clothingItemLabel };
 }

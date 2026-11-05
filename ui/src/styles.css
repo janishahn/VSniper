@@ -1627,6 +1627,34 @@ details.disclosure > .disclosure-body {
   color: var(--text-2);
 }
 
+/* Buckets */
+.bucket-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.bucket-item > .bucket-note,
+.bucket-item > .error-text {
+  grid-column: 1 / -1;
+}
+
+.catalog-tree {
+  display: grid;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.catalog-node {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 3px 0;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
 @media (max-width: 899px) {
   .search-item {
     grid-template-columns: minmax(0, 1fr);

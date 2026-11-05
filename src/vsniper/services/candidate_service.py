@@ -21,7 +21,6 @@ from vsniper.domain.contracts import (
     AiCostStats,
     CandidatePage,
     CandidateRecord,
-    ClothingItem,
     DashboardStats,
     FeedbackPayload,
     LearningSnapshot,
@@ -115,7 +114,7 @@ class CandidateService:
                 size=candidate_model.size,
                 condition=condition,
                 description=str(norm.get("description") or ""),
-                clothing_item=cast(ClothingItem, candidate_model.clothing_item),
+                clothing_item=candidate_model.clothing_item,
                 feedback=feedback,
             )
         except OpenAIIntegrationError as exc:
@@ -353,7 +352,7 @@ class CandidateService:
             judge_score=int(trace["score_10"]),
             alert_threshold=round(float(trace["threshold"]) * 100),
             taste_profile=self.preferences.active_taste_profile(
-                session, clothing_item=cast(ClothingItem, candidate_model.clothing_item)
+                session, clothing_item=candidate_model.clothing_item
             ),
         )
 

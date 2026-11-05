@@ -1,7 +1,7 @@
 """Thin facade that wires shared resources and the four domain services together.
 
 Routes and worker jobs go through `get_state()` and call into the services via attributes
-(`get_state().searches`, `.preferences`, `.candidates`, `.telegram`). Business logic lives
+(`get_state().searches`, `.preferences`, `.candidates`, `.telegram`, `.buckets`). Business logic lives
 in `vsniper/services/*` — this module only owns lifecycle (DB init + seed)."""
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services._mapping import build_session_health, integration_configuration
 from vsniper.services.candidate_service import CandidateService
 from vsniper.services.error_service import ErrorService
-from vsniper.services.search_defaults import CANONICAL_CLOTHING_ITEMS, canonical_search_values
+from vsniper.services.bucket_service import BucketService, bucket_records
+from vsniper.services.search_defaults import canonical_search_values
 from vsniper.services.search_service import SearchService
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
@@ -112,6 +113,7 @@ class AppState:
         logger.info("AppState persisted settings loaded")
 
         self.errors = ErrorService(self.settings, self.telegram_client)
+        self.buckets = BucketService(self.settings)
         self.taste = TasteService(self.settings, self.taste_client, self.vinted_client, self.errors)
         self.preferences = self.taste
         self.candidates = CandidateService(self.settings, self.taste, self.taste_client, self.errors)
@@ -174,10 +176,11 @@ class AppState:
                 .values(id=1, manual_note="", taste_profile={}, reference_observations=[])
                 .on_conflict_do_nothing()
             )
-            for clothing_item in CANONICAL_CLOTHING_ITEMS:
+            # Buckets are seeded by their migration; every bucket owns one search.
+            for bucket in bucket_records(session, include_archived=True):
                 session.execute(
                     sqlite_insert(Search)
-                    .values(**canonical_search_values(clothing_item, now=now))
+                    .values(**canonical_search_values(bucket, now=now))
                     .on_conflict_do_nothing()
                 )
         logger.info("AppState seed_if_empty finished")

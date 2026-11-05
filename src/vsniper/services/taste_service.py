@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import httpx
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from vsniper.core.config import Settings
@@ -46,6 +46,7 @@ from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.integrations.openai.tokenization import text_counts
 from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services._mapping import (
+    as_aware,
     learning_snapshot_to_contract,
     taste_sample_to_contract,
     taste_state_to_snapshot,
@@ -59,6 +60,13 @@ _IMAGE_FORMAT_SUFFIXES = {
     "WEBP": ".webp",
 }
 logger = logging.getLogger(__name__)
+
+# The worker rebuilds the taste profile on its own at most once a day, and only once enough
+# has changed: three new or changed samples, or any change that has waited a week. Until then
+# the changes reach the judge as anchors (see `latest_labeled_anchors`).
+AUTO_RECOMPUTE_MIN_INTERVAL = timedelta(hours=24)
+AUTO_RECOMPUTE_MIN_CHANGES = 3
+AUTO_RECOMPUTE_MAX_WAIT = timedelta(days=7)
 
 OBSERVATION_BATCH_SIZE = 15
 TASTE_RECOMPUTE_STALE_AFTER = timedelta(hours=2)
@@ -376,6 +384,7 @@ class TasteService:
         candidate: Candidate,
         verdict: str | None,
         comment: str,
+        lesson: str | None = None,
         stored_image_paths: list[str] | None = None,
     ) -> TasteSampleState:
         effective_verdict = verdict if verdict in {"like", "dislike"} else candidate.feedback
@@ -400,12 +409,20 @@ class TasteService:
         sample.size = candidate.size
         sample.description = (candidate.normalized_listing or {}).get("description", "") or ""
         sample.image_urls = candidate.image_urls or []
+        previous_lesson = (sample.normalized_listing or {}).get("feedback_lesson")
+        if lesson:
+            feedback_lesson = {"verdict": effective_verdict, "text": lesson}
+        elif isinstance(previous_lesson, dict) and previous_lesson.get("verdict") == effective_verdict:
+            feedback_lesson = previous_lesson
+        else:
+            feedback_lesson = None
         sample.normalized_listing = {
             **(candidate.normalized_listing or {}),
             "ai_observation": candidate.ai_observation or {},
             "score_trace": candidate.score_trace or {},
             "decision": candidate.decision,
             "final_score": candidate.final_score,
+            "feedback_lesson": feedback_lesson,
         }
         sample.candidate_id = candidate.id
         sample.stored_image_paths = (
@@ -441,6 +458,12 @@ class TasteService:
                     logger.debug("Could not copy candidate observation into taste sample cache", exc_info=True)
         sample.updated_at = now
         return sample
+
+    def feedback_lesson_verdict(self, session: Session, *, candidate_id: str) -> str | None:
+        """The verdict the candidate's stored feedback lesson was written for, if any."""
+        sample = session.scalar(select(TasteSampleState).where(TasteSampleState.candidate_id == candidate_id).limit(1))
+        lesson = (sample.normalized_listing or {}).get("feedback_lesson") if sample is not None else None
+        return lesson.get("verdict") if isinstance(lesson, dict) else None
 
     def existing_feedback_image_paths(self, session: Session, *, candidate_id: str) -> list[str]:
         """Durable image paths already stored for this candidate's feedback sample, if any.
@@ -744,6 +767,9 @@ class TasteService:
                     break
                 except Exception:
                     continue
+        listing = sample.normalized_listing or {}
+        trace = listing.get("score_trace") or {}
+        lesson = listing.get("feedback_lesson")
         return LabeledExample(
             candidate_id=sample.candidate_id or sample.id,
             clothing_item=cast(ClothingItem, sample.clothing_item),
@@ -753,6 +779,9 @@ class TasteService:
             description=sample.description or "",
             user_comment=sample.note or "",
             observation=observation,
+            judge_score=int(trace["score_10"]) if "score_10" in trace else None,
+            alert_threshold=round(float(trace["threshold"]) * 100) if "threshold" in trace else None,
+            lesson=str(lesson.get("text") or "") if isinstance(lesson, dict) else "",
         )
 
     @staticmethod
@@ -822,9 +851,12 @@ class TasteService:
         limit: int = 5,
     ) -> tuple[list[LabeledExample], list[LabeledExample]]:
         with session_scope() as session:
-            samples = session.scalars(
-                select(TasteSampleState).order_by(TasteSampleState.updated_at.desc()).limit(limit * 8)
-            ).all()
+            # Only feedback newer than the profile: everything older is already part of it.
+            profiled_at = as_aware(self.get_taste_state(session).last_recomputed_at)
+            query = select(TasteSampleState).order_by(TasteSampleState.updated_at.desc()).limit(limit * 8)
+            if profiled_at is not None:
+                query = query.where(TasteSampleState.updated_at > profiled_at)
+            samples = session.scalars(query).all()
             if clothing_item is not None:
                 samples = sorted(samples, key=lambda sample: sample.clothing_item != clothing_item)
             liked: list[LabeledExample] = []
@@ -855,6 +887,35 @@ class TasteService:
             character_count=character_count,
             token_count=token_count,
         )
+
+    def run_auto_recompute_if_due(self) -> TasteRecomputeResult | None:
+        """Rebuild the profile when enough feedback has arrived since the last one (see the
+        AUTO_RECOMPUTE_* constants). The first profile is always built by hand."""
+        now = datetime.now(UTC)
+        with session_scope() as session:
+            state = self.get_taste_state(session)
+            profiled_at = as_aware(state.last_recomputed_at)
+            last_attempt = as_aware(state.recompute_finished_at)
+            if not state.taste_profile or profiled_at is None or state.recompute_status == "running":
+                return None
+            # A failed attempt also waits a full interval, so an outage cannot cause a retry loop.
+            if now - profiled_at < AUTO_RECOMPUTE_MIN_INTERVAL or (
+                last_attempt is not None and now - last_attempt < AUTO_RECOMPUTE_MIN_INTERVAL
+            ):
+                return None
+            changes = session.scalar(
+                select(func.count()).select_from(TasteSampleState).where(TasteSampleState.updated_at > profiled_at)
+            ) or 0
+            note_updated_at = as_aware(state.manual_note_updated_at)
+            if note_updated_at is not None and note_updated_at > profiled_at:
+                changes += 1
+        if changes == 0 or (changes < AUTO_RECOMPUTE_MIN_CHANGES and now - profiled_at < AUTO_RECOMPUTE_MAX_WAIT):
+            return None
+        claim = self.claim_recompute(source="auto")
+        if not claim.claimed or claim.job_id is None:
+            return None
+        logger.info("automatic taste recompute started changes=%d job=%s", changes, claim.job_id)
+        return self.run_claimed_recompute(claim.job_id)
 
     def claim_recompute(self, *, source: str = "api") -> TasteRecomputeClaim:
         now = datetime.now(UTC)
@@ -994,6 +1055,9 @@ class TasteService:
             if db_settings is None:
                 raise RuntimeError("Settings row is missing from SQLite storage")
             vision_model = self.settings.openai_vision_model
+            # The new profile covers the samples as of now; feedback arriving during the build
+            # stays newer than `last_recomputed_at`, so it remains an anchor and counts as a change.
+            evidence_at = datetime.now(UTC)
             samples = session.scalars(select(TasteSampleState).order_by(TasteSampleState.created_at.asc())).all()
             previous_profile = TasteProfile.model_validate(state.taste_profile) if state.taste_profile else None
             image_inputs = self._sample_image_inputs(samples)
@@ -1133,7 +1197,7 @@ class TasteService:
                 .values(
                     taste_profile=taste_profile.model_dump(mode="json"),
                     reference_observations=[item.model_dump(mode="json") for item in observations],
-                    last_recomputed_at=now,
+                    last_recomputed_at=evidence_at,
                 )
             )
             if result_row.rowcount == 1:

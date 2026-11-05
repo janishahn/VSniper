@@ -82,6 +82,8 @@ class AlertDeliveryState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.id"), nullable=False, index=True)
     channel: Mapped[str] = mapped_column(String(32), default="telegram", nullable=False)
+    # "alert" for a listing at or above its threshold; "borderline" for the daily near-miss probe.
+    kind: Mapped[str] = mapped_column(String(16), default="alert", server_default="alert", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

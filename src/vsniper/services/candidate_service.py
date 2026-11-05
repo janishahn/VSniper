@@ -28,7 +28,7 @@ from vsniper.domain.contracts import (
     ScoreDistribution,
     ScoreDistributionBin,
 )
-from vsniper.integrations.openai.client import OpenAIIntegrationError, OpenAITasteClient
+from vsniper.integrations.openai.client import FeedbackContext, OpenAIIntegrationError, OpenAITasteClient
 from vsniper.services._mapping import (
     candidate_to_contract,
     extract_condition,
@@ -87,23 +87,27 @@ class CandidateService:
         cache_path.write_bytes(response.content)
         return response.content, content_type
 
-    def _compute_candidate_observation(self, candidate_model: Candidate) -> dict | None:
-        """Run a structured observation on the candidate image, returning the JSON payload.
+    def _compute_candidate_observation(
+        self, candidate_model: Candidate, feedback: FeedbackContext | None
+    ) -> tuple[dict | None, str | None]:
+        """Run a structured observation on the candidate image, plus the feedback lesson when
+        `feedback` is given. Returns (observation JSON or None if already stored, lesson or None).
 
         Network + VLM only — must run *outside* any DB transaction so the SQLite write lock is
         not held across the (slow) call. `candidate_model` may be detached (its columns were
         eagerly loaded; `expire_on_commit=False` keeps them readable). Best-effort: failures are
-        logged and return None instead of blocking feedback recording."""
-        if candidate_model.ai_observation:
-            return None
+        logged and return (None, None) instead of blocking feedback recording."""
+        needs_observation = not candidate_model.ai_observation
+        if not needs_observation and feedback is None:
+            return None, None
         image = self._load_candidate_image_bytes(candidate_model)
         if image is None:
-            return None
+            return None, None
         image_bytes, mime_type = image
         norm = candidate_model.normalized_listing or {}
         condition = extract_condition(norm.get("raw_listing") or {})
         try:
-            observation = self.taste_client.describe_candidate_image(
+            observation, lesson = self.taste_client.describe_candidate_image(
                 image_bytes=image_bytes,
                 mime_type=mime_type,
                 title=candidate_model.title,
@@ -112,6 +116,7 @@ class CandidateService:
                 condition=condition,
                 description=str(norm.get("description") or ""),
                 clothing_item=cast(ClothingItem, candidate_model.clothing_item),
+                feedback=feedback,
             )
         except OpenAIIntegrationError as exc:
             logger.warning("Failed to describe candidate %s for learning evidence.", candidate_model.id, exc_info=True)
@@ -129,8 +134,8 @@ class CandidateService:
                     related_entity_type="candidate",
                     related_entity_id=candidate_model.id,
                 )
-            return None
-        return observation.model_dump(mode="json")
+            return None, None
+        return (observation.model_dump(mode="json") if needs_observation else None), (lesson or None)
 
     # Sort options exposed to the API; maps to (column, descending).
     _SORT_OPTIONS = {
@@ -297,18 +302,14 @@ class CandidateService:
             same_comment = cleaned_comment is None or cleaned_comment == current_comment
             if skip_if_unchanged and same_verdict and same_comment:
                 return candidate_to_contract(candidate_model), None
-            needs_observation = not candidate_model.ai_observation
+            feedback = self._feedback_context(session, candidate_model, verdict)
             candidate_image_urls = candidate_model.image_urls or []
             already_cached = self.preferences.existing_feedback_image_paths(
                 session, candidate_id=candidate_id
             )
 
         # Phase 2 — network/VLM, no DB transaction held.
-        observation = (
-            self._compute_candidate_observation(candidate_model)
-            if needs_observation
-            else None
-        )
+        observation, lesson = self._compute_candidate_observation(candidate_model, feedback)
         # Download the feedback-sample images here, outside the Phase 3 write txn, so the durable
         # asset download (up to 6 × 20s) never holds a SQLite write lock (would risk BUSY_SNAPSHOT).
         # Skip if the sample already has durable paths (re-recording feedback on the same candidate).
@@ -328,8 +329,33 @@ class CandidateService:
                 comment=comment,
                 skip_if_unchanged=skip_if_unchanged,
                 observation=observation,
+                lesson=lesson,
                 stored_image_paths=stored_image_paths,
             )
+
+    def _feedback_context(
+        self, session: Session, candidate_model: Candidate, verdict: Literal["like", "dislike"] | None
+    ) -> FeedbackContext | None:
+        """The context for a feedback lesson, or None when no new lesson is needed: no verdict,
+        a lesson for this verdict already exists, the listing was never judged, or no taste
+        profile exists yet to measure it against."""
+        if verdict is None:
+            return None
+        if self.preferences.feedback_lesson_verdict(session, candidate_id=candidate_model.id) == verdict:
+            return None
+        trace = candidate_model.score_trace or {}
+        if "score_10" not in trace or "threshold" not in trace:
+            return None
+        if not self.preferences.get_taste_state(session).taste_profile:
+            return None
+        return FeedbackContext(
+            verdict=verdict,
+            judge_score=int(trace["score_10"]),
+            alert_threshold=round(float(trace["threshold"]) * 100),
+            taste_profile=self.preferences.active_taste_profile(
+                session, clothing_item=cast(ClothingItem, candidate_model.clothing_item)
+            ),
+        )
 
     def record_feedback_in_session(
         self,
@@ -340,6 +366,7 @@ class CandidateService:
         comment: str | None = None,
         skip_if_unchanged: bool = False,
         observation: dict | None = None,
+        lesson: str | None = None,
         stored_image_paths: list[str] | None = None,
     ) -> tuple[CandidateRecord, LearningSnapshot | None]:
         cleaned_comment = comment.strip() if comment is not None else None
@@ -365,6 +392,7 @@ class CandidateService:
             candidate=candidate_model,
             verdict=verdict,
             comment=candidate_model.feedback_comment or "",
+            lesson=lesson,
             stored_image_paths=stored_image_paths,
         )
         signal = verdict if verdict is not None else "note"

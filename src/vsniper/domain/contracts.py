@@ -664,6 +664,11 @@ class LabeledExample(BaseModel):
     description: str = ""
     user_comment: str = ""
     observation: ReferenceObservation | None = None
+    # What the decision model scored the listing before the verdict, against which threshold,
+    # and the one-line lesson written when the verdict came in. Unset for wardrobe samples.
+    judge_score: int | None = None
+    alert_threshold: int | None = None
+    lesson: str = ""
 
 
 class BackupManifestFileEntry(BaseModel):

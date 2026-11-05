@@ -103,7 +103,7 @@ def test_note_only_feedback_keeps_unknown_verdict_and_upserts_sample(monkeypatch
             return ["candidate-1-0.jpg"]
 
         def upsert_candidate_feedback_sample(
-            self, session, *, candidate, verdict, comment, stored_image_paths=None
+            self, session, *, candidate, verdict, comment, lesson=None, stored_image_paths=None
         ):
             seen.update(
                 {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine
@@ -172,3 +172,72 @@ def test_superseded_recompute_job_does_not_clobber_newer_result(monkeypatch, tmp
         state = session.get(TasteState, 1)
         assert state.taste_profile["summary"] == "original"
         assert session.query(LearningSnapshotState).count() == 0
+
+
+def _sample(sample_id: str, *, kind: str, updated_at: datetime) -> TasteSampleState:
+    return TasteSampleState(
+        id=sample_id, kind=kind, clothing_item="hosen", title=sample_id, created_at=updated_at, updated_at=updated_at
+    )
+
+
+def test_auto_recompute_runs_at_most_daily_and_only_after_enough_feedback(monkeypatch, tmp_path) -> None:
+    service = _setup(monkeypatch, tmp_path)
+    factory = service._test_factory
+    now = datetime.now(UTC)
+    ran: list[str] = []
+    service.run_claimed_recompute = lambda job_id: ran.append(job_id)
+    with factory() as session:
+        session.add(
+            TasteState(
+                id=1, manual_note="", taste_profile={"summary": "x"}, recompute_status="succeeded",
+                last_recomputed_at=now - timedelta(hours=25), recompute_finished_at=now - timedelta(hours=25),
+            )
+        )
+        session.add_all([_sample(f"s{i}", kind="offer_dislike", updated_at=now) for i in range(2)])
+        session.commit()
+
+    service.run_auto_recompute_if_due()
+    assert ran == []  # two changes wait for more feedback
+
+    with factory() as session:
+        session.add(_sample("s2", kind="offer_like", updated_at=now))
+        state = session.get(TasteState, 1)
+        state.recompute_status, state.recompute_finished_at = "failed", now - timedelta(hours=1)
+        session.commit()
+    service.run_auto_recompute_if_due()
+    assert ran == []  # a recent failed attempt also waits a full day
+
+    with factory() as session:
+        state = session.get(TasteState, 1)
+        state.recompute_finished_at = now - timedelta(hours=25)
+        session.commit()
+    service.run_auto_recompute_if_due()
+    assert len(ran) == 1
+
+    with factory() as session:
+        state = session.get(TasteState, 1)
+        state.recompute_status, state.recompute_job_id = "succeeded", None
+        state.last_recomputed_at = now - timedelta(days=8)
+        state.recompute_finished_at = now - timedelta(days=8)
+        session.query(TasteSampleState).delete()
+        session.add(_sample("lone", kind="offer_like", updated_at=now))
+        session.commit()
+    service.run_auto_recompute_if_due()
+    assert len(ran) == 2  # a single change is folded in once it has waited a week
+
+
+def test_anchors_are_only_feedback_newer_than_the_profile(monkeypatch, tmp_path) -> None:
+    service = _setup(monkeypatch, tmp_path)
+    factory = service._test_factory
+    now = datetime.now(UTC)
+    with factory() as session:
+        session.add(TasteState(id=1, manual_note="", taste_profile={}, last_recomputed_at=now - timedelta(hours=1)))
+        session.add(_sample("old-like", kind="offer_like", updated_at=now - timedelta(hours=2)))
+        session.add(_sample("new-like", kind="offer_like", updated_at=now))
+        session.add(_sample("new-dislike", kind="offer_dislike", updated_at=now))
+        session.commit()
+
+    liked, disliked = service.latest_labeled_anchors(clothing_item="hosen")
+
+    assert [example.title for example in liked] == ["new-like"]
+    assert [example.title for example in disliked] == ["new-dislike"]

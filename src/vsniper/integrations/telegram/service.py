@@ -21,23 +21,33 @@ _DESCRIPTION_MAX_CHARS = 300
 
 
 class TelegramFormatter:
-    def build_alert_message(self, candidate: CandidateRecord) -> str:
+    def build_alert_message(self, candidate: CandidateRecord, kind: str = "alert") -> str:
         description = (candidate.description or "").strip()
         if len(description) > _DESCRIPTION_MAX_CHARS:
             boundary = description.rfind(" ", 0, _DESCRIPTION_MAX_CHARS)
             description = description[: boundary if boundary > 50 else _DESCRIPTION_MAX_CHARS].rstrip() + "…"
 
-        parts = [
+        trace = candidate.score_trace
+        parts = (
+            [
+                f"🤔 Borderline: scored {trace.score_10}/100, just under the alert threshold of "
+                f"{round(trace.threshold * 100)}. Would you want listings like this?\n"
+            ]
+            if kind == "borderline"
+            else []
+        )
+        parts += [
             f"🧥 {candidate.title}",
             f"Brand: {candidate.brand}  |  Size: {candidate.size}  |  Price: €{candidate.price_eur:.2f}",
         ]
         if description:
             parts.append(f"\n{description}")
-        parts += [
-            f"\nDecision: {candidate.score_trace.decision} ({candidate.score_trace.score_10}/100)",
-            f"Why: {candidate.score_trace.explanation or candidate.score_trace.summary}",
-            f"🔗 {candidate.url}",
-        ]
+        if kind != "borderline":
+            parts += [
+                f"\nDecision: {trace.decision} ({trace.score_10}/100)",
+                f"Why: {trace.explanation or trace.summary}",
+            ]
+        parts.append(f"🔗 {candidate.url}")
         return "\n".join(parts)
 
     def build_feedback_reply_markup(self, delivery_id: str) -> dict[str, list[list[dict[str, str]]]]:

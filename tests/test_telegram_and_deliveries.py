@@ -90,7 +90,7 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
     service = _build_telegram_service_without_init()
     service.settings = SimpleNamespace(telegram_chat_id='chat-123')
     service.telegram_formatter = SimpleNamespace(
-        build_alert_message=lambda candidate: 'alert body',
+        build_alert_message=lambda candidate, kind='alert': 'alert body',
         build_feedback_reply_markup=lambda delivery_id: {'inline_keyboard': [[{'callback_data': f'feedback:{delivery_id}:like'}]]},
     )
 
@@ -350,3 +350,60 @@ def test_taste_recompute_callback_detects_already_running(monkeypatch) -> None:
     assert result.recompute_job_id == 'taste-job-running'
     assert 'already running' in edits[0]['text']
     assert acknowledgements == [{'callback_query_id': 'cb-taste-2', 'text': 'Taste recompute is already running.'}]
+
+
+def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch, tmp_path) -> None:
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import sessionmaker
+
+    from vsniper.core.database import Base
+    from vsniper.db.models import Candidate
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'borderline.db'}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    @contextmanager
+    def fake_session_scope():
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        finally:
+            session.close()
+
+    monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
+    now = datetime.now(UTC)
+
+    def candidate(candidate_id: str, score: int, *, feedback: str = 'unknown', age: timedelta = timedelta(hours=1)):
+        return Candidate(
+            id=candidate_id, search_id='s1', clothing_item='hosen', title=candidate_id, brand='B', price_eur=20.0,
+            size='M', url=f'https://example.test/{candidate_id}', image_urls=[], matched_filters=[],
+            matched_preferences=[], features=[], normalized_listing={}, extraction_status='completed',
+            score_trace={'final_score': score / 100, 'score_10': score, 'threshold': 0.95, 'decision': 'review',
+                         'components': [], 'summary': '', 'raw_response': {}},
+            decision='review', final_score=score / 100, ai_observation={}, grading_stage='vlm_judged',
+            feedback=feedback, feedback_comment='', created_at=now - age,
+        )
+
+    with factory() as session:
+        session.add(AppSettingsState(id=1, vinted_region='de', telegram_bot_token='bot-token', telegram_chat_id='523'))
+        session.add_all([
+            candidate('near-85', 85),
+            candidate('near-88', 88),
+            candidate('liked-90', 90, feedback='like'),
+            candidate('too-low', 70),
+            candidate('stale-92', 92, age=timedelta(days=2)),
+        ])
+        session.commit()
+
+    service = _build_telegram_service_without_init()
+    service.telegram_formatter = TelegramFormatter()
+
+    assert service.queue_borderline_probe() is True
+    assert service.queue_borderline_probe() is False  # one per day
+
+    with factory() as session:
+        deliveries = session.scalars(select(AlertDeliveryState)).all()
+        assert [(d.candidate_id, d.kind) for d in deliveries] == [('near-88', 'borderline')]
+        assert deliveries[0].payload_preview.startswith('🤔 Borderline: scored 88/100')

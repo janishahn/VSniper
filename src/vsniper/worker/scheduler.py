@@ -177,6 +177,31 @@ def _run_maintenance() -> None:
             _logger.warning("cookie expiry check failed", exc_info=True)
             _record_worker_error("check_cookie_expiry", "Cookie expiry check failed", exc)
 
+    record_heartbeat(owner=_WORKER_OWNER, cycle_count=_cycle_count, phase="auto_taste_recompute")
+    with worker_activity("auto_taste_recompute") as active:
+        if active:
+            try:
+                result = get_state().taste.run_auto_recompute_if_due()
+                if result is not None:
+                    _logger.info("automatic taste recompute finished cost_usd=%.4f", result.cost_usd)
+            except Exception as exc:
+                _logger.warning("automatic taste recompute failed", exc_info=True)
+                _record_worker_error("auto_taste_recompute", "Automatic taste recompute failed", exc)
+        else:
+            dispose_engine()
+
+    record_heartbeat(owner=_WORKER_OWNER, cycle_count=_cycle_count, phase="borderline_probe")
+    with worker_activity("borderline_probe") as active:
+        if active:
+            try:
+                if get_state().telegram.queue_borderline_probe():
+                    _logger.info("queued the daily borderline listing")
+            except Exception as exc:
+                _logger.warning("borderline probe failed", exc_info=True)
+                _record_worker_error("borderline_probe", "Borderline probe failed", exc)
+        else:
+            dispose_engine()
+
     state = get_state()
     prune_every = max(1, state.settings.prune_every_cycles)
     if _cycle_count % prune_every == 0:

@@ -44,6 +44,9 @@ ACTIVE_DELIVERY_STATUSES = ("pending", "processing", "sent")
 # Statuses that block re-queuing the same candidate. Includes "failed" so a delivery
 # that exhausted its retries is not re-inserted (with fresh attempts) on every scan.
 DEDUP_DELIVERY_STATUSES = ACTIVE_DELIVERY_STATUSES + ("failed",)
+# The daily borderline probe: at most one per interval, scored within the margin below its threshold.
+BORDERLINE_INTERVAL = timedelta(hours=24)
+BORDERLINE_MARGIN = 15
 
 
 @dataclass(frozen=True)
@@ -117,8 +120,8 @@ class TelegramService:
             .limit(1)
         )
 
-    def queue_delivery(self, session: Session, candidate: Candidate) -> bool:
-        preview_message = self.telegram_formatter.build_alert_message(candidate_to_contract(candidate))
+    def queue_delivery(self, session: Session, candidate: Candidate, kind: str = "alert") -> bool:
+        preview_message = self.telegram_formatter.build_alert_message(candidate_to_contract(candidate), kind)
         now = datetime.now(UTC)
         result = cast(
             CursorResult,
@@ -127,6 +130,7 @@ class TelegramService:
                 .values(
                     candidate_id=candidate.id,
                     channel="telegram",
+                    kind=kind,
                     status="pending",
                     attempt_count=0,
                     last_error=None,
@@ -143,6 +147,46 @@ class TelegramService:
             ),
         )
         return result.rowcount == 1
+
+    def queue_borderline_probe(self) -> bool:
+        """Once a day, send the best near-miss of the last day: a judged listing without
+        feedback that scored just under its alert threshold. Alerts alone never show the
+        system what it scores too low, so these verdicts are the most informative."""
+        now = datetime.now(UTC)
+        with session_scope() as session:
+            config = _telegram_config_from_model(session.get(AppSettingsState, 1))
+            if not (
+                is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here")
+                and is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here")
+            ):
+                return False
+            last_sent = as_aware(
+                session.scalar(
+                    select(func.max(AlertDeliveryState.created_at)).where(AlertDeliveryState.kind == "borderline")
+                )
+            )
+            if last_sent is not None and now - last_sent < BORDERLINE_INTERVAL:
+                return False
+            recent = session.scalars(
+                select(Candidate).where(
+                    Candidate.created_at >= now - BORDERLINE_INTERVAL,
+                    Candidate.feedback.notin_(("like", "dislike")),
+                    Candidate.grading_stage == "vlm_judged",
+                    ~Candidate.alert_deliveries.any(),
+                )
+            ).all()
+            best: Candidate | None = None
+            best_score = -1
+            for candidate in recent:
+                trace = candidate.score_trace or {}
+                if "score_10" not in trace or "threshold" not in trace:
+                    continue
+                score, threshold = int(trace["score_10"]), round(float(trace["threshold"]) * 100)
+                if threshold - BORDERLINE_MARGIN <= score < threshold and score > best_score:
+                    best, best_score = candidate, score
+            if best is None:
+                return False
+            return self.queue_delivery(session, best, kind="borderline")
 
     def retry_delivery(self, candidate_id: str) -> bool:
         """Re-queue the latest failed delivery for a candidate so the worker picks it up next
@@ -306,7 +350,9 @@ class TelegramService:
                         session=session,
                     )
                 return outcome
-            payload_preview = self.telegram_formatter.build_alert_message(candidate_to_contract(candidate))
+            payload_preview = self.telegram_formatter.build_alert_message(
+                candidate_to_contract(candidate), delivery.kind
+            )
 
         attempted_at = datetime.now(UTC)
         try:

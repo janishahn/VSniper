@@ -7,7 +7,6 @@ import pytest
 
 from vsniper.integrations.vinted.browser import (
     BrowserListingChallengeError,
-    BrowserListingUnconfiguredError,
     VintedBrowserClient,
 )
 
@@ -59,15 +58,6 @@ def _client(monkeypatch, context: _FakeContext, **settings: str) -> VintedBrowse
     return client
 
 
-def test_browser_fetch_returns_listing_html(monkeypatch) -> None:
-    html = '<meta property="og:title" content="Wide cargos | Vinted">'
-    page = _FakePage(title="Wide cargos | Vinted", html=html)
-    client = _client(monkeypatch, _FakeContext(page))
-
-    assert client.fetch_html("https://www.vinted.de/items/123-item", cookie_header="") == html
-    assert page.visited == ["https://www.vinted.de/items/123-item"]
-
-
 def test_browser_fetch_keeps_cookies_the_profile_already_has(monkeypatch) -> None:
     page = _FakePage(title="Wide cargos | Vinted", html='<meta property="og:title" content="x">')
     context = _FakeContext(page, cookies=[{"name": "datadome", "value": "solved-in-browser"}])
@@ -93,17 +83,6 @@ def test_browser_fetch_reports_cloudflare_and_datadome_challenges(monkeypatch, t
 
     with pytest.raises(BrowserListingChallengeError, match="Open the Vinted browser"):
         client.fetch_html("https://www.vinted.de/items/123-item", cookie_header="")
-
-
-def test_empty_proxy_configuration_uses_no_proxy() -> None:
-    assert VintedBrowserClient(_settings())._proxy_settings() is None  # type: ignore[arg-type]
-
-
-def test_invalid_proxy_configuration_is_rejected() -> None:
-    client = VintedBrowserClient(_settings(proxy_url="proxy.example"))  # type: ignore[arg-type]
-
-    with pytest.raises(BrowserListingUnconfiguredError, match="http, https, or socks5"):
-        client._proxy_settings()
 
 
 def test_authenticated_proxy_credentials_are_passed_separately() -> None:

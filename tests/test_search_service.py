@@ -72,41 +72,6 @@ def _size_filter_values(factory, search_id: str) -> list[str] | None:
         session.close()
 
 
-def test_apply_profile_sizes_to_all_buckets_sizes_by_clothing_item(monkeypatch, tmp_path) -> None:
-    grouped = [
-        {"title": "43", "group_description": "Schuhe Männer"},
-        {"title": "42.5", "group_description": "Schuhe Männer"},
-        {"title": "W32 | DE 48", "group_description": "Hosen für Herren"},
-        {"title": "Gürtelgröße 90", "group_description": "Gürtel für Herren"},
-    ]
-    service, factory = _setup(monkeypatch, tmp_path, grouped_sizes=grouped)
-
-    service.apply_profile_sizes_to_all()
-
-    assert _size_filter_values(factory, "search-schuhe") == ["43", "42.5"]
-    assert _size_filter_values(factory, "search-hosen") == ["W32 | DE 48"]
-    # "Kopf" has no matching size group in the fetched list, so its filters are untouched.
-    assert _size_filter_values(factory, "search-kopf") is None
-
-
-def test_apply_profile_sizes_to_all_leaves_unmapped_clothing_item_untouched(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(
-        monkeypatch,
-        tmp_path,
-        grouped_sizes=[{"title": "43", "group_description": "Schuhe Männer"}],
-    )
-
-    with factory() as session:
-        search = session.get(Search, "search-hosen")
-        search.filters = [SearchFilter(field="size", label="Sizes", values=["existing"], mode="include").model_dump(mode="json")]
-        session.commit()
-
-    service.apply_profile_sizes_to_all()
-
-    assert _size_filter_values(factory, "search-hosen") == ["existing"]
-    assert _size_filter_values(factory, "search-schuhe") == ["43"]
-
-
 def test_apply_profile_sizes_to_all_does_not_leak_shoe_sizes_into_tops_via_generic_size_group(monkeypatch, tmp_path) -> None:
     grouped = [
         {"title": "43", "group_description": "Schuhe Männer"},

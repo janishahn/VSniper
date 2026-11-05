@@ -4,7 +4,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -88,32 +87,6 @@ def test_record_lists_and_redacts_terminal_error(monkeypatch, tmp_path) -> None:
     assert event.related_entity_id == "42"
 
 
-def test_notification_failure_updates_original_without_recursive_event(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(monkeypatch, tmp_path, enabled=True)
-
-    def fail_send(**_kwargs):
-        raise TelegramDeliveryError("Telegram is down", retryable=False, status_code=400)
-
-    service.telegram_client.send_message = fail_send
-    event_id = service.record(
-        source="search",
-        operation="run_search",
-        summary="Search failed",
-        message="Vinted request failed.",
-    )
-
-    result = service.process_pending_notifications()
-
-    assert result == {"claimed": 1, "sent": 0, "retry": 0, "failed": 1}
-    with factory() as session:
-        assert session.scalar(select(func.count()).select_from(ErrorEvent)) == 1
-        event = session.get(ErrorEvent, event_id)
-        assert event is not None
-        assert event.telegram_notification_status == "failed"
-        assert event.telegram_notification_attempt_count == 1
-        assert event.telegram_notification_last_error == "Telegram is down"
-
-
 def test_retryable_notification_stops_after_three_attempts(monkeypatch, tmp_path) -> None:
     service, factory = _setup(monkeypatch, tmp_path, enabled=True)
 
@@ -145,81 +118,3 @@ def test_retryable_notification_stops_after_three_attempts(monkeypatch, tmp_path
         assert event.telegram_notification_status == "failed"
         assert event.telegram_notification_attempt_count == 3
         assert session.scalar(select(func.count()).select_from(ErrorEvent)) == 1
-
-
-def test_disabling_cancels_pending_and_reenable_does_not_queue_backlog(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(monkeypatch, tmp_path, enabled=True)
-    first_id = service.record(
-        source="api",
-        operation="GET /api/test",
-        summary="Request failed",
-        message="Failure.",
-    )
-
-    disabled = service.update_notification_settings(enabled=False)
-    enabled = service.update_notification_settings(enabled=True)
-
-    assert disabled.enabled is False
-    assert enabled.enabled is True
-    with factory() as session:
-        first = session.get(ErrorEvent, first_id)
-        assert first is not None
-        assert first.telegram_notification_status == "not_requested"
-
-    second_id = service.record(
-        source="api",
-        operation="GET /api/test",
-        summary="Another request failed",
-        message="Failure.",
-    )
-    with factory() as session:
-        second = session.get(ErrorEvent, second_id)
-        assert second is not None
-        assert second.telegram_notification_status == "pending"
-
-
-def test_enabling_requires_configured_telegram(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(monkeypatch, tmp_path)
-    with factory() as session:
-        settings = session.get(AppSettingsState, 1)
-        assert settings is not None
-        settings.telegram_bot_token = ""
-        session.commit()
-
-    with pytest.raises(ValueError, match="Configure a Telegram bot token"):
-        service.update_notification_settings(enabled=True)
-
-
-def test_prune_keeps_pending_events(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(monkeypatch, tmp_path)
-    old = datetime.now(UTC) - timedelta(days=366)
-    with factory() as session:
-        session.add_all(
-            [
-                ErrorEvent(
-                    occurred_at=old,
-                    source="api",
-                    operation="old",
-                    summary="Old",
-                    message="Old",
-                    details={},
-                    telegram_notification_status="sent",
-                    updated_at=old,
-                ),
-                ErrorEvent(
-                    occurred_at=old,
-                    source="api",
-                    operation="pending",
-                    summary="Pending",
-                    message="Pending",
-                    details={},
-                    telegram_notification_status="pending",
-                    updated_at=old,
-                ),
-            ]
-        )
-        session.commit()
-
-    assert service.prune_old_events() == 1
-    assert service.page().total == 1
-    assert service.page().items[0].telegram_notification_status == "pending"

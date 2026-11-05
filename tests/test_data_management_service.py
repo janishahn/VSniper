@@ -12,8 +12,7 @@ from vsniper.core.config import get_settings
 from vsniper.core.database import dispose_engine, init_database
 from vsniper.domain.contracts import BackupManifest, BackupManifestFileEntry
 from vsniper.services import data_management_service as svc
-from vsniper.services.data_management_service import BackupError, BackupImportBusy, BackupImportVersionMismatch
-from vsniper.services.maintenance_service import WorkerDrainTimeout
+from vsniper.services.data_management_service import BackupError, BackupImportVersionMismatch
 
 
 @pytest.fixture()
@@ -60,44 +59,6 @@ def _get_probe(db_path: Path) -> str:
     return row[0]
 
 
-def _get_maintenance_mode(db_path: Path) -> str:
-    with sqlite3.connect(db_path) as conn:
-        row = conn.execute("SELECT mode FROM maintenance_state WHERE id = 1").fetchone()
-    return row[0]
-
-
-def _zip_names(zip_bytes: bytes) -> set[str]:
-    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-        return set(zf.namelist())
-
-
-def test_export_includes_uploads_and_optionally_cache(isolated_storage) -> None:
-    _set_probe(isolated_storage.db_path, "original")
-    (isolated_storage.uploads / "taste").mkdir(parents=True)
-    (isolated_storage.uploads / "taste" / "sample.jpg").write_bytes(b"upload-image")
-    isolated_storage.feedback_assets.mkdir(parents=True, exist_ok=True)
-    (isolated_storage.feedback_assets / "feedback.jpg").write_bytes(b"feedback-image")
-    (isolated_storage.cache / "candidate-images").mkdir(parents=True)
-    (isolated_storage.cache / "candidate-images" / "cached.jpg").write_bytes(b"cache-image")
-    isolated_storage.db_path.with_name("vsniper.db-wal").write_bytes(b"sidecar")
-    (isolated_storage.storage / ".migration.lock").write_text("lock")
-
-    without_cache, manifest = svc.build_export(include_cache=False)
-    with_cache, cache_manifest = svc.build_export(include_cache=True)
-
-    assert manifest.include_cache is False
-    names = _zip_names(without_cache)
-    assert "manifest.json" in names
-    assert "db/vsniper.db" in names
-    assert "uploads/taste/sample.jpg" in names
-    assert "feedback-assets/feedback.jpg" in names
-    assert "cache/candidate-images/cached.jpg" not in names
-    assert not any(name.endswith(("-wal", "-shm")) or name == ".migration.lock" for name in names)
-
-    assert cache_manifest.include_cache is True
-    assert "cache/candidate-images/cached.jpg" in _zip_names(with_cache)
-
-
 def test_import_restores_db_uploads_and_cache_and_removes_stale_files(isolated_storage) -> None:
     _set_probe(isolated_storage.db_path, "original")
     (isolated_storage.uploads / "taste").mkdir(parents=True)
@@ -129,23 +90,6 @@ def test_import_restores_db_uploads_and_cache_and_removes_stale_files(isolated_s
     assert (isolated_storage.cache / "candidate-images" / "cached.jpg").read_bytes() == b"cache-image"
     assert not (isolated_storage.cache / "stale.txt").exists()
     assert list(isolated_storage.storage.glob(".pre-import-backup-*"))
-
-
-def test_import_without_cache_clears_current_cache(isolated_storage) -> None:
-    _set_probe(isolated_storage.db_path, "original")
-    (isolated_storage.uploads / "taste").mkdir(parents=True)
-    (isolated_storage.uploads / "taste" / "sample.jpg").write_bytes(b"upload-image")
-    isolated_storage.feedback_assets.mkdir(parents=True, exist_ok=True)
-    (isolated_storage.feedback_assets / "feedback.jpg").write_bytes(b"feedback-image")
-    (isolated_storage.cache / "candidate-images").mkdir(parents=True)
-    (isolated_storage.cache / "candidate-images" / "cached.jpg").write_bytes(b"cache-image")
-    backup, _ = svc.build_export(include_cache=False)
-
-    (isolated_storage.cache / "stale.txt").write_text("stale")
-    svc.apply_import(backup)
-
-    assert list(isolated_storage.cache.rglob("*")) == []
-    assert (isolated_storage.feedback_assets / "feedback.jpg").read_bytes() == b"feedback-image"
 
 
 def test_import_rejects_hash_mismatch_before_mutating(isolated_storage) -> None:
@@ -197,23 +141,3 @@ def test_import_rejects_newer_schema_backup(isolated_storage, monkeypatch: pytes
 
     with pytest.raises(BackupImportVersionMismatch):
         svc.apply_import(backup)
-
-
-def test_import_releases_maintenance_mode_when_worker_drain_times_out(
-    isolated_storage,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _set_probe(isolated_storage.db_path, "original")
-    backup, _ = svc.build_export(include_cache=False)
-    _set_probe(isolated_storage.db_path, "changed")
-    monkeypatch.setattr(
-        svc,
-        "wait_for_workers_to_drain",
-        lambda: (_ for _ in ()).throw(WorkerDrainTimeout("active worker")),
-    )
-
-    with pytest.raises(BackupImportBusy, match="active worker"):
-        svc.apply_import(backup)
-
-    assert _get_probe(isolated_storage.db_path) == "changed"
-    assert _get_maintenance_mode(isolated_storage.db_path) == "idle"

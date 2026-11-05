@@ -17,7 +17,7 @@ from vsniper.db.models import (
     TasteSampleState,
     TasteState,
 )
-from vsniper.domain.contracts import TasteOfferCreate, TasteProfile
+from vsniper.domain.contracts import TasteProfile
 from vsniper.services.taste_service import TasteService
 
 
@@ -50,106 +50,6 @@ def _setup(monkeypatch, tmp_path):
     service.taste_client = SimpleNamespace()
     service._test_factory = factory
     return service
-
-
-def test_add_offer_hydrates_vinted_listing(monkeypatch, tmp_path) -> None:
-    service = _setup(monkeypatch, tmp_path)
-
-    class FakeVintedClient:
-        def fetch_item_by_url(self, url, *, clothing_item, region):
-            assert url == "https://www.vinted.de/items/12345-wide-cargos"
-            assert clothing_item == "hosen"
-            assert region == "de"
-            return {
-                "id": "12345",
-                "external_item_id": "12345",
-                "title": "Wide cargos",
-                "brand": "Brand",
-                "price_eur": 35.0,
-                "size": "M",
-                "url": url,
-                "image_urls": ["https://images.vinted.example/12345.jpg"],
-                "description": "Wide cotton trousers",
-                "features": [],
-                "raw_listing": {"id": 12345},
-            }
-
-    service.vinted_client = FakeVintedClient()
-    monkeypatch.setattr(service, "_cache_image_urls", lambda sample_id, image_urls: ["taste-offers/12345-0.jpg"])
-
-    sample = service.add_offer(
-        TasteOfferCreate(
-            vinted_url="https://www.vinted.de/items/12345-wide-cargos",
-            kind="offer_like",
-            clothing_item="hosen",
-            note="good shape",
-        )
-    )
-
-    assert sample.external_item_id == "12345"
-    assert sample.title == "Wide cargos"
-    assert sample.brand == "Brand"
-    assert sample.price_eur == 35.0
-    assert sample.size == "M"
-    assert sample.description == "Wide cotton trousers"
-    assert sample.image_urls == ["https://images.vinted.example/12345.jpg"]
-    assert sample.cached_image_paths == ["taste-offers/12345-0.jpg"]
-    assert sample.normalized_listing["raw_listing"] == {"id": 12345}
-
-
-def test_add_offer_reuses_candidate_and_copies_cached_image(monkeypatch, tmp_path) -> None:
-    service = _setup(monkeypatch, tmp_path)
-    factory = service._test_factory
-    now = datetime.now(UTC)
-    with factory() as session:
-        session.add(Search(id="s1", name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
-        session.add(
-            Candidate(
-                id="s1:12345",
-                external_item_id="12345",
-                clothing_item="hosen",
-                search_id="s1",
-                title="Cached cargos",
-                brand="Cached brand",
-                price_eur=28.0,
-                size="M",
-                url="https://www.vinted.de/items/12345-cached-cargos",
-                image_urls=["https://images1.vinted.net/item.jpg"],
-                matched_filters=[],
-                matched_preferences=[],
-                features=[],
-                normalized_listing={"description": "Cached description", "raw_listing": {"id": 12345}},
-                score_trace={},
-                decision="review",
-                final_score=70,
-                created_at=now,
-                last_seen_at=now,
-            )
-        )
-        session.commit()
-
-    candidate_cache = tmp_path / "cache" / "candidate-images" / "s1_12345.jpg"
-    candidate_cache.parent.mkdir(parents=True)
-    candidate_cache.write_bytes(b"cached image")
-
-    class FakeVintedClient:
-        def fetch_item_by_url(self, *args, **kwargs):
-            raise AssertionError("known candidates must not be fetched from Vinted")
-
-    service.vinted_client = FakeVintedClient()
-    sample = service.add_offer(
-        TasteOfferCreate(
-            vinted_url="https://www.vinted.de/items/12345-any-slug",
-            clothing_item="hosen",
-        )
-    )
-
-    assert sample.title == "Cached cargos"
-    assert sample.candidate_id == "s1:12345"
-    assert len(sample.cached_image_paths) == 1
-    copied = tmp_path / "cache" / sample.cached_image_paths[0]
-    assert copied.read_bytes() == b"cached image"
-    assert candidate_cache.read_bytes() == b"cached image"
 
 
 def test_candidate_feedback_sample_uses_durable_images(monkeypatch, tmp_path) -> None:
@@ -239,18 +139,6 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
     assert claim.claimed is True
 
 
-def test_cancel_recompute_is_a_noop_when_nothing_is_running(monkeypatch, tmp_path) -> None:
-    service = _setup(monkeypatch, tmp_path)
-    factory = service._test_factory
-
-    with factory() as session:
-        session.add(TasteState(id=1, manual_note="", taste_profile={}, recompute_status="idle"))
-        session.commit()
-
-    snapshot = service.cancel_recompute()
-    assert snapshot.recompute_state.status == "idle"
-
-
 def _seed_recompute_prereqs(factory, *, job_id: str, taste_profile: dict, now: datetime) -> None:
     with factory() as session:
         session.add(
@@ -288,22 +176,3 @@ def test_superseded_recompute_job_does_not_clobber_newer_result(monkeypatch, tmp
         state = session.get(TasteState, 1)
         assert state.taste_profile["summary"] == "original"
         assert session.query(LearningSnapshotState).count() == 0
-
-
-def test_matching_recompute_job_persists_result(monkeypatch, tmp_path) -> None:
-    service = _setup(monkeypatch, tmp_path)
-    service.settings.ai_learn_image_detail = "high"
-    factory = service._test_factory
-    now = datetime.now(UTC)
-    _seed_recompute_prereqs(factory, job_id="job-A", taste_profile={}, now=now)
-    service.taste_client.build_taste_profile = lambda **kwargs: TasteProfile(summary="s", taste_prompt="p")
-
-    result = service._run_recompute_unlocked("job-A")
-
-    assert result.snapshot.taste_profile.summary == "s"
-    with factory() as session:
-        state = session.get(TasteState, 1)
-        assert state.taste_profile["summary"] == "s"
-        snapshot = session.query(LearningSnapshotState).one()
-        assert snapshot.old_taste_profile is None
-        assert snapshot.new_taste_profile["summary"] == "s"

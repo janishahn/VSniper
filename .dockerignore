@@ -1,0 +1,14 @@
+.git
+.venv
+.env
+.env.*
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+ui/node_modules
+ui/dist
+storage
+pics_of_clothes_i_like
+scripts
+tests

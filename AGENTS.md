@@ -5,69 +5,54 @@ Guidance for coding agents working in this repository.
 ## Non-negotiable rules
 
 - Vinted support is intentionally limited to the `de` region. Do not introduce multi-region branches or fixtures.
-- Keep API routes and worker jobs thin. Business logic belongs in the relevant module under `backend/src/vsniper/services/`.
+- Keep API routes and worker jobs thin. Business logic belongs in the relevant module under `src/vsniper/services/`.
 - Keep `AppState` as a resource/service facade; do not add business methods to it.
 - Search-run coordination uses database-backed claims. Do not add a competing in-process lock.
 - Preserve unrelated working-tree changes.
 
 ## Commands
 
-Run backend commands from the repository root:
+Run from the repository root:
 
 ```bash
-uv sync --project backend --extra dev
-uv run --project backend uvicorn vsniper.api.main:app --reload --app-dir backend/src
-uv run --project backend python -m vsniper.worker.scheduler
-uv run --project backend python -m vsniper.worker.scheduler --once
-uv run --project backend --extra dev pytest backend/tests
-uv run --project backend --extra dev ruff check backend/src backend/tests
-uv run --project backend --extra dev mypy backend/src
+uv sync
+npm ci --prefix ui
+uv run dev                 # API with reload on :8000, Vite on :5173
+uv run fast-tests          # Ruff, mypy, pytest; extra args go to pytest
+uv run scan-once           # scan every enabled search once, then maintenance
+npm run build --prefix ui
+docker compose up --build  # the production image, loopback-only on :8010
 ```
 
-Run one backend test with its node ID, for example:
+Run one test with its node ID, for example `uv run pytest tests/test_vinted_client.py::test_name`.
 
-```bash
-uv run --project backend --extra dev pytest backend/tests/test_vinted_client.py::test_name
-```
-
-Run web commands from `web/`:
-
-```bash
-npm ci
-npm run dev
-npm run build
-```
-
-Start the local stack with `docker compose up --build` after copying `.env.example` to `.env`. The development stack is unauthenticated and must remain bound to localhost.
+Releases are tag-driven: a `v*` tag builds and smoke-tests the image, pushes `ghcr.io/janishahn/vsniper` for amd64 and arm64, then creates the GitHub release. Only cut a release when asked. `upstream` is the original `jonas-klesen/VSniper`; merge `upstream/main` to take its changes.
 
 ## Architecture
 
-The FastAPI process and worker share `storage/sqlite/vsniper.db`. Both enter through `vsniper.core.state.get_state()`, whose `AppState` owns integration clients, database lifecycle, and four domain services:
+One process runs everything. The FastAPI lifespan starts the scan loop and the Telegram long-polling thread from `vsniper.worker.scheduler` unless `RUN_WORKER=false`, and the app serves the built UI from `ui/dist`. Everything enters through `vsniper.core.state.get_state()`, whose `AppState` owns integration clients, database lifecycle, and four domain services:
 
 - `state.taste` / `state.preferences`: wardrobe and offer samples, observations, taste recompute, profiles, and anchors
 - `state.candidates`: candidates, feedback, dashboard statistics, score distributions, and AI costs
 - `state.searches`: saved searches, scan execution, judging, run claims, and app settings
-- `state.telegram`: webhook handling and queued alert delivery
+- `state.telegram`: polled update handling and queued alert delivery
 
 Other service modules handle focused concerns such as AI-model configuration, operations, maintenance, backups, and storage. Routes may call these modules directly, but persistence and business rules still stay out of route handlers.
 
-The continuous worker staggers enabled searches across the configured scan interval. Delivery processing, cookie checks, pruning, and heartbeats run on a separate maintenance cadence. `--once` scans all enabled searches and then runs maintenance.
+The continuous worker staggers enabled searches across the configured scan interval. Delivery processing, cookie checks, pruning, and heartbeats run on a separate maintenance cadence. `scan-once` scans all enabled searches and then runs maintenance.
 
-SQLite uses WAL mode and a five-second busy timeout. Startup runs `alembic upgrade head` under a migration lock. Filesystem state belongs under `storage/`:
+SQLite uses WAL mode and a five-second busy timeout. Startup runs `alembic upgrade head` under a migration lock. Filesystem state lives under `storage/` locally and `/data` in the image: `sqlite/vsniper.db`, `uploads/`, `cache/`, `feedback-assets/` and `browser-profile/`.
 
-- `storage/sqlite/vsniper.db`
-- `storage/uploads/`
-- `storage/cache/`
-- `storage/feedback-assets/`
+Add-by-URL imports use a persistent Playwright Chromium profile on the container's Xvfb display. noVNC on `VNC_PORT` exposes that display so an operator can solve a Vinted challenge; the profile's own cookies take precedence over the configured cookie.
 
 ## Contracts and persistence
 
-`backend/src/vsniper/domain/contracts.py` contains the Pydantic wire contracts used by the API and services. Mirror contract changes in `web/src/types.ts`. SQLAlchemy models in `backend/src/vsniper/db/models.py` are internal persistence shapes; keep conversions in services, primarily `services/_mapping.py`.
+`src/vsniper/domain/contracts.py` contains the Pydantic wire contracts used by the API and services. Mirror contract changes in `ui/src/types.ts`. SQLAlchemy models in `src/vsniper/db/models.py` are internal persistence shapes; keep conversions in services, primarily `services/_mapping.py`.
 
 After changing a database model, generate and review a migration:
 
 ```bash
-uv run --project backend --extra dev alembic -c backend/alembic.ini revision --autogenerate -m "your message"
+uv run alembic revision --autogenerate -m "your message"
 ```
 
 Never treat an autogenerated migration as finished without inspecting its upgrade and downgrade paths.
@@ -88,14 +73,14 @@ Telegram alerts are durable delivery rows with bounded retries. Web and Telegram
 
 ## Web app
 
-The web client uses React, Vite, TypeScript, React Router, and TanStack Query. Keep HTTP calls in `web/src/lib/api.ts`, use `/api/*` paths, and never hardcode a backend origin. Shared clothing-item metadata belongs in `web/src/lib/clothingItems.ts`.
+The web client uses React, Vite, TypeScript, React Router, and TanStack Query. Keep HTTP calls in `ui/src/lib/api.ts`, use `/api/*` paths, and never hardcode a backend origin. Shared clothing-item metadata belongs in `ui/src/lib/clothingItems.ts`.
 
-When backend contracts change, update the TypeScript mirror and run `npm run build`.
+When backend contracts change, update the TypeScript mirror and run `npm run build --prefix ui`.
 
 ## Prompt changes
 
-Prompt experiments under `scripts/iter_*.py` use the live OpenAI API and the user's local reference photos, so they incur cost and produce gitignored outputs. Before changing a meta-prompt in `backend/src/vsniper/integrations/openai/client.py`, run the relevant current and revised variants side by side and compare their output. Use `scripts/iter_prompts.py` for observation/taste prompts and the applicable `scripts/iter_judge*.py` harness for judge prompts.
+Prompt experiments under `scripts/iter_*.py` use the live OpenAI API and the user's local reference photos, so they incur cost and produce gitignored outputs. Before changing a meta-prompt in `src/vsniper/integrations/openai/client.py`, run the relevant current and revised variants side by side and compare their output. Use `scripts/iter_prompts.py` for observation/taste prompts and the applicable `scripts/iter_judge*.py` harness for judge prompts.
 
 ## Verification
 
-Run the narrowest relevant tests while iterating. Before handing off a backend change, run the affected tests plus Ruff and mypy. For web changes, run `npm run build`. For cross-stack contract changes, verify both sides.
+Run the narrowest relevant tests while iterating. Before handing off a backend change, run `uv run fast-tests`. For web changes, run `npm run build --prefix ui`. For cross-stack contract changes, verify both sides.

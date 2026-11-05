@@ -18,7 +18,7 @@ Run from the repository root:
 uv sync
 npm ci --prefix ui
 uv run dev                 # API with reload on :8000, Vite on :5173
-uv run fast-tests          # Ruff, mypy, pytest; extra args go to pytest
+uv run fast-tests          # Ruff, ty, pytest; extra args go to pytest
 uv run scan-once           # scan every enabled search once, then maintenance
 npm run build --prefix ui
 docker compose up --build  # the production image, loopback-only on :8010

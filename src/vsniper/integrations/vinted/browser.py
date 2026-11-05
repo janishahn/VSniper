@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from playwright.sync_api import BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import BrowserContext, Page, Playwright, ProxySettings, sync_playwright
 from playwright.sync_api import Error as PlaywrightError
 
 from vsniper.core.config import Settings
@@ -103,7 +103,7 @@ class VintedBrowserClient:
                 no_viewport=True,
                 args=["--disable-blink-features=AutomationControlled", "--window-size=1440,1000"],
                 ignore_default_args=["--enable-automation"],
-                proxy=proxy,  # type: ignore[arg-type]
+                proxy=proxy,
                 timeout=self.settings.vinted_browser_timeout_seconds * 1000,
             )
         except PlaywrightError as exc:
@@ -116,7 +116,7 @@ class VintedBrowserClient:
         self._context = context
         return context
 
-    def _proxy_settings(self) -> dict[str, str] | None:
+    def _proxy_settings(self) -> ProxySettings | None:
         proxy_url = self.settings.vinted_browser_proxy_url.strip()
         if not proxy_url:
             return None
@@ -133,7 +133,7 @@ class VintedBrowserClient:
             raise BrowserListingUnconfiguredError(
                 "Authenticated SOCKS5 proxies are not supported by Chromium; use an authenticated HTTP proxy."
             )
-        proxy = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+        proxy: ProxySettings = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
         if parsed.username is not None and parsed.password is not None:
             proxy["username"] = unquote(parsed.username)
             proxy["password"] = unquote(parsed.password)

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import cast
-
 from vsniper.domain.contracts import (
     CLOTHING_ITEM_DESCRIPTIONS,
     CLOTHING_ITEM_LABELS,
@@ -240,7 +238,7 @@ def _is_category_field(field: str) -> bool:
 def _valid_clothing_item(value: str) -> ClothingItem:
     if value not in _ALLOWED_ITEM_KEYS:
         raise CategoryFilterError(f"Unsupported clothing item for Vinted category defaults: {value}")
-    return cast(ClothingItem, value)
+    return value
 
 
 def _allowed_catalog_ids_for_item(clothing_item: ClothingItem) -> set[str]:

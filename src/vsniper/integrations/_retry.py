@@ -23,12 +23,12 @@ def retry_transient(fn: Callable[[], _T], *, label: str) -> _T:
         except Exception as exc:
             last_exc = exc
             if not getattr(exc, "retryable", False) or attempt >= _MAX_ATTEMPTS - 1:
-                exc.attempt_count = attempt + 1  # type: ignore[attr-defined]
-                exc.retry_label = label  # type: ignore[attr-defined]
+                setattr(exc, "attempt_count", attempt + 1)
+                setattr(exc, "retry_label", label)
                 # Retries are spent (or never applied): clear the flag so an *outer*
                 # retry_transient treats this as terminal instead of re-amplifying attempts.
                 if getattr(exc, "retryable", False):
-                    exc.retryable = False  # type: ignore[attr-defined]
+                    setattr(exc, "retryable", False)
                 raise
             delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
             _logger.warning(

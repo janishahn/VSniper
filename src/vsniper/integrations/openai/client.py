@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from time import perf_counter
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -267,13 +267,13 @@ SINGLE_OBSERVATION_SCHEMA: dict[str, Any] = {
 
 
 class OpenAIIntegrationError(RuntimeError):
-    pass
+    retryable = False
 
 
 def _retryable_error(message: str) -> OpenAIIntegrationError:
     """Build an OpenAIIntegrationError flagged for retry_transient to retry."""
     exc = OpenAIIntegrationError(message)
-    exc.retryable = True  # type: ignore[attr-defined]
+    exc.retryable = True
     return exc
 
 
@@ -1588,7 +1588,7 @@ class OpenAITasteClient:
             clothing_item = str(raw.get("clothing_item") or "")
             if clothing_item not in CLOTHING_ITEM_LABELS:
                 continue
-            item_key = cast(ClothingItem, clothing_item)
+            item_key = clothing_item
             search_raw = raw.get("generated_search") or {}
             try:
                 filters = [SearchFilter.model_validate(item) for item in search_raw.get("filters", [])]

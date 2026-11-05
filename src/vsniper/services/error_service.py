@@ -17,6 +17,7 @@ from vsniper.domain.contracts import (
     ErrorEventRecord,
     ErrorNotificationSettings,
     ErrorSource,
+    ErrorTelegramNotificationStatus,
 )
 from vsniper.integrations.telegram.client import TelegramClient
 from vsniper.services._mapping import as_aware, is_value_configured
@@ -216,7 +217,7 @@ class ErrorService:
         return ErrorEventRecord(
             id=event.id,
             occurred_at=event.occurred_at,
-            source=event.source,  # type: ignore[arg-type]
+            source=cast(ErrorSource, event.source),
             operation=event.operation,
             summary=event.summary,
             message=event.message,
@@ -224,7 +225,7 @@ class ErrorService:
             details=event.details or {},
             related_entity_type=event.related_entity_type,
             related_entity_id=event.related_entity_id,
-            telegram_notification_status=event.telegram_notification_status,  # type: ignore[arg-type]
+            telegram_notification_status=cast(ErrorTelegramNotificationStatus, event.telegram_notification_status),
             telegram_notification_attempt_count=event.telegram_notification_attempt_count,
             telegram_notification_last_attempted_at=event.telegram_notification_last_attempted_at,
             telegram_notification_last_error=event.telegram_notification_last_error,

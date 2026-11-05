@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -17,10 +18,12 @@ from vsniper.db.models import (
 )
 from vsniper.domain.contracts import (
     DeliveryQueueSummary,
+    MaintenanceMode,
     OperationsSnapshot,
     SearchClaimStatus,
     SearchRunPage,
     SearchRunRecord,
+    ScanMode,
     WorkerActivityRecord,
     WorkerHeartbeatRecord,
 )
@@ -40,7 +43,7 @@ def _search_run_to_record(row: SearchRun) -> SearchRunRecord:
     return SearchRunRecord(
         id=row.id,
         search_id=row.search_id,
-        mode=row.mode,  # type: ignore[arg-type]
+        mode=cast(ScanMode, row.mode),
         trigger=row.trigger or "worker",
         status=row.status or "running",
         started_at=row.started_at,
@@ -94,7 +97,7 @@ def _get_search_claims() -> list[SearchClaimStatus]:
                 SearchClaimStatus(
                     search_id=row.id,
                     search_name=row.name,
-                    clothing_item=row.clothing_item,  # type: ignore[arg-type]
+                    clothing_item=row.clothing_item,
                     run_status=row.run_status,
                     last_claimed_at=claimed_at,
                     last_run_at=as_aware(row.last_run_at),
@@ -160,7 +163,7 @@ def get_operations_snapshot() -> OperationsSnapshot:
         recent_runs = [_search_run_to_record(r) for r in run_rows]
 
     return OperationsSnapshot(
-        maintenance_mode=maint["mode"],  # type: ignore[arg-type]
+        maintenance_mode=cast(MaintenanceMode, maint["mode"]),
         maintenance_reason=maint["reason"],
         maintenance_started_at=maint["started_at"],
         worker_heartbeat=heartbeat,

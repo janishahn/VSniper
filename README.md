@@ -36,7 +36,7 @@ The release workflow smoke-tests the image, pushes it to GHCR as `X.Y.Z`, `X.Y` 
 uv sync
 npm ci --prefix ui
 uv run dev          # API on :8000 with reload, Vite on :5173
-uv run fast-tests   # Ruff, mypy, pytest
+uv run fast-tests   # Ruff, ty, pytest
 npm run build --prefix ui
 ```
 

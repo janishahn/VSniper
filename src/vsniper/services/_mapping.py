@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -25,7 +24,6 @@ from vsniper.domain.contracts import (
     AiModelConfig,
     CandidateRecord,
     CLOTHING_ITEM_LABELS,
-    ClothingItem,
     LearningSnapshot,
     SearchRecord,
     SessionHealth,
@@ -187,7 +185,7 @@ def search_to_record(model: Search, *, default_alert_threshold: int = 95) -> Sea
     clothing_item = model.clothing_item
     name = model.name
     if clothing_item in CLOTHING_ITEM_LABELS:
-        name = CLOTHING_ITEM_LABELS[cast(ClothingItem, clothing_item)]
+        name = CLOTHING_ITEM_LABELS[clothing_item]
     return SearchRecord.model_validate(
         {
             "id": model.id,

@@ -29,7 +29,7 @@ def fast_tests() -> None:
     """Lint, type-check and run the backend test suite."""
     for command in (
         ["ruff", "check", "src", "tests"],
-        ["mypy", "src"],
+        ["ty", "check", "src"],
         ["pytest", "tests", *sys.argv[1:]],
     ):
         result = subprocess.run([sys.executable, "-m", *command], cwd=ROOT)

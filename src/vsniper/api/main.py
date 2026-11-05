@@ -8,6 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from vsniper.api.routes import ai_models, candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram
 from vsniper.core.config import get_settings
@@ -142,7 +143,7 @@ async def log_api_requests(request: Request, call_next):
 class _ImmutableStaticFiles(StaticFiles):
     """Serve Vite's content-hashed assets with a long-lived cache."""
 
-    async def get_response(self, path: str, scope):  # type: ignore[no-untyped-def]
+    async def get_response(self, path: str, scope: Scope) -> Response:
         response = await super().get_response(path, scope)
         if response.status_code == 200:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"

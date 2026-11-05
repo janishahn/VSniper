@@ -5,7 +5,7 @@ export type SearchFilter = {
   mode: 'include' | 'exclude' | 'range' | 'exact';
 };
 
-export type ClothingItem = 'schuhe' | 'hosen' | 'obenrum_warm' | 'obenrum_mittel' | 'obenrum_kalt' | 'kopf';
+export type ClothingItem = 'schuhe' | 'hosen' | 'obenrum_warm' | 'obenrum_mittel' | 'obenrum_kalt' | 'kopf' | 'ringe';
 
 export type SearchCategoryOption = {
   label: string;

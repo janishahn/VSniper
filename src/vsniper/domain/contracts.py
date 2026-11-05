@@ -11,7 +11,7 @@ ScanMode = Literal["preview", "live"]
 ExtractionStatus = Literal["pending", "completed", "failed"]
 DeliveryStatus = Literal["not_queued", "pending", "processing", "sent", "failed"]
 TasteSampleKind = Literal["wardrobe", "offer_like", "offer_dislike", "offer_note"]
-ClothingItem = Literal["schuhe", "hosen", "obenrum_warm", "obenrum_mittel", "obenrum_kalt", "kopf"]
+ClothingItem = Literal["schuhe", "hosen", "obenrum_warm", "obenrum_mittel", "obenrum_kalt", "kopf", "ringe"]
 
 CLOTHING_ITEM_LABELS: dict[ClothingItem, str] = {
     "schuhe": "Schuhe",
@@ -20,6 +20,7 @@ CLOTHING_ITEM_LABELS: dict[ClothingItem, str] = {
     "obenrum_mittel": "Obenrum Mittel",
     "obenrum_kalt": "Obenrum Kalt",
     "kopf": "Kopf",
+    "ringe": "Ringe",
 }
 
 CLOTHING_ITEM_DESCRIPTIONS: dict[ClothingItem, str] = {
@@ -29,6 +30,7 @@ CLOTHING_ITEM_DESCRIPTIONS: dict[ClothingItem, str] = {
     "obenrum_mittel": "Medium-layer tops such as longsleeves and light pullovers.",
     "obenrum_kalt": "Cold-weather upper-body pieces such as heavy pullovers and jackets.",
     "kopf": "Headwear, especially funny or weird baseball caps.",
+    "ringe": "Rings worn on the fingers.",
 }
 
 

@@ -7,6 +7,7 @@ export const clothingItems: { value: ClothingItem; label: string; description: s
   { value: 'obenrum_mittel', label: 'Obenrum Mittel', description: 'Longsleeves and light pullovers' },
   { value: 'obenrum_kalt', label: 'Obenrum Kalt', description: 'Heavy pullovers and jackets' },
   { value: 'kopf', label: 'Kopf', description: 'Funny or weird baseball caps' },
+  { value: 'ringe', label: 'Ringe', description: 'Rings worn on the fingers' },
 ];
 
 export function clothingItemLabel(value: ClothingItem): string {

@@ -38,7 +38,7 @@ def test_sizes_resolve_without_listing_constraints(monkeypatch) -> None:
             return httpx.Response(404)
         if request.url.path == '/svc-filters/filters/facets':
             lookups.append(request.url.params)
-            assert request.url.params['attribute_ids[catalog]'] == '34'
+            assert request.url.params['attribute_ids[catalog]'] == '9'
             constrained = any(key in request.url.params for key in ('search_text', 'price_from', 'price_to'))
             return httpx.Response(200, json={'options': []} if constrained else fixture)
         assert request.url.path == '/api/v2/catalog/items'
@@ -117,7 +117,7 @@ def test_search_uses_api_host_after_legacy_404(monkeypatch) -> None:
         assert request.headers['cookie'] == cookie
         assert request.headers['x-anon-id'] == 'anon-1'
         assert request.headers['x-csrf-token'] == 'csrf-1'
-        assert request.url.params['attribute_ids[catalog]'] == '34'
+        assert request.url.params['attribute_ids[catalog]'] == '9'
         assert request.url.params['attribute_ids[color]'] == '1'
         assert request.url.params['attribute_ids[status]'] == '2'
         assert request.url.params['attribute_ids[material]'] == '46'
@@ -167,7 +167,7 @@ def test_filter_lookup_uses_gateway_after_404(monkeypatch, field, operation) -> 
             assert request.headers['platform'] == 'web'
             assert request.headers['locale'] == 'de-DE'
             assert request.headers['sec-fetch-site'] == 'same-site'
-            assert request.url.params['attribute_ids[catalog]'] == '34'
+            assert request.url.params['attribute_ids[catalog]'] == '9'
             assert 'catalog_ids' not in request.url.params
             assert request.url.params['currency'] == 'EUR'
             if field == 'size':
@@ -182,7 +182,7 @@ def test_filter_lookup_uses_gateway_after_404(monkeypatch, field, operation) -> 
             return httpx.Response(200, json={'options': [{'id': 208, 'title': 'M'}]})
         assert request.url.path == '/api/v2/catalog/items'
         assert request.url.params[f'{field}_ids'] == '208'
-        assert request.url.params['catalog_ids'] == '34'
+        assert request.url.params['catalog_ids'] == '9'
         return httpx.Response(200, json={'items': []})
 
     client = VintedClient(client=httpx.Client(transport=httpx.MockTransport(handler)))

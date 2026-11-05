@@ -18,6 +18,7 @@ DEFAULT_CATEGORY_ALIASES_BY_ITEM: dict[ClothingItem, list[str]] = {
     "obenrum_mittel": ["tops", "pullovers"],
     "obenrum_kalt": ["hoodies", "pullovers", "jackets", "coats", "vests"],
     "kopf": ["hats"],
+    "ringe": ["rings"],
 }
 
 ALLOWED_CATEGORY_ALIASES_BY_ITEM: dict[ClothingItem, list[str]] = {
@@ -64,6 +65,11 @@ ALLOWED_CATEGORY_ALIASES_BY_ITEM: dict[ClothingItem, list[str]] = {
         "polos",
         "tank tops",
         "top vests",
+        "blouses",
+        "blusen",
+        "bluse",
+        "crop tops",
+        "bauchfreie tops",
     ],
     "obenrum_mittel": [
         "obenrum mittel",
@@ -137,6 +143,13 @@ ALLOWED_CATEGORY_ALIASES_BY_ITEM: dict[ClothingItem, list[str]] = {
         "kappen",
         "kappe",
     ],
+    "ringe": [
+        "ringe",
+        "ring",
+        "rings",
+        "siegelring",
+        "signet ring",
+    ],
 }
 
 
@@ -154,6 +167,7 @@ SIZE_GROUP_KEYWORDS_BY_CLOTHING_ITEM: dict[ClothingItem, list[str]] = {
     "schuhe": ["schuhe"],
     "hosen": ["hose"],
     "kopf": ["hut", "huete", "muetze"],
+    "ringe": ["ring"],
     "obenrum_warm": ["hemd", "shirt", "kleidergroesse"],
     "obenrum_mittel": ["hemd", "shirt", "kleidergroesse"],
     "obenrum_kalt": ["jacke", "pullover", "kleidergroesse"],

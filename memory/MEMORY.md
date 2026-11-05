@@ -1,1 +1,0 @@
-- [Coolify deploy](coolify-deploy.md) — production runs on Coolify; local dev still must work (follow-up pending)

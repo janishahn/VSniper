@@ -1,0 +1,43 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig(() => {
+  const proxyTarget = 'http://127.0.0.1:8000';
+  const browserProxyTarget = 'http://127.0.0.1:6080';
+
+  return {
+    plugins: [react()],
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': {
+          target: proxyTarget,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (_proxyReq, req) => {
+              console.info(`[vite proxy] request ${req.method ?? 'UNKNOWN'} ${req.url ?? ''} -> ${proxyTarget}`);
+            });
+            proxy.on('proxyRes', (proxyRes, req) => {
+              console.info(
+                `[vite proxy] response ${req.method ?? 'UNKNOWN'} ${req.url ?? ''} status=${proxyRes.statusCode ?? 0}`,
+              );
+            });
+            proxy.on('error', (error, req) => {
+              console.error(`[vite proxy] error ${req.method ?? 'UNKNOWN'} ${req.url ?? ''}: ${error.message}`);
+            });
+          },
+        },
+        '/healthz': {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        '/vinted-browser': {
+          target: browserProxyTarget,
+          changeOrigin: true,
+          ws: true,
+          rewrite: (path) => path.replace(/^\/vinted-browser/, '') || '/',
+        },
+      },
+    },
+  };
+});

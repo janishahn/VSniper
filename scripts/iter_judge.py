@@ -53,7 +53,7 @@ GRID_SCHEMA = {
 }
 
 
-def _try_font(size: int) -> ImageFont.ImageFont:
+def _try_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     for candidate in (
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",

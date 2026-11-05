@@ -1,6 +1,6 @@
 """Live-API experimentation harness for iterating taste-model prompts.
 
-Not used at runtime — invoke directly with `uv run --project backend python scripts/iter_prompts.py <stage>`.
+Not used at runtime — invoke directly with `uv run python scripts/iter_prompts.py <stage>`.
 """
 
 from __future__ import annotations

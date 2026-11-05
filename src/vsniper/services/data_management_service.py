@@ -387,7 +387,7 @@ def _apply_import_zip(zf: zipfile.ZipFile) -> BackupImportResult:
         logger.info("pre-import backup written to %s", backup_dir)
 
         # Tear down this process' SQLAlchemy pool so nothing holds the old DB inode open when we
-        # swap it out. Other worker processes have drained before this point and will skip new work
+        # swap it out. Background workers have drained before this point and will skip new work
         # while maintenance is active.
         dispose_engine()
 

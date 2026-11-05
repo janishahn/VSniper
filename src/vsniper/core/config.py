@@ -16,12 +16,9 @@ def _discover_runtime_root() -> Path:
 
 
 class Settings(BaseSettings):
-    app_env: str = Field(default="development", alias="APP_ENV")
     # Scans Vinted and polls Telegram from this process. Turn off for a second local instance
     # that shares the bot token with the deployed one.
     run_worker: bool = Field(default=True, alias="RUN_WORKER")
-    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=8000, alias="API_PORT")
     sqlite_path: Path = Field(default=Path("storage/sqlite/vsniper.db"), alias="SQLITE_PATH")
     vinted_region: str = Field(default="de", alias="VINTED_REGION")
     vinted_cookie: str = Field(default="put-your-vinted-cookie-here", alias="VINTED_COOKIE")

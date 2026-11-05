@@ -483,9 +483,6 @@ class TelegramService:
             if model is not None and model.refresh_token_expiry_warning_sent_for != expiry_key:
                 model.refresh_token_expiry_warning_sent_for = expiry_key
 
-    def check_cookie_expiry(self) -> None:
-        self.check_refresh_token_expiry()
-
     def _acknowledge_callback(self, callback_query_id: str, text: str) -> None:
         if not callback_query_id.strip():
             return

@@ -106,7 +106,7 @@ function setTokenFilter(
   return { ...form, filters: replaceFilters(form.filters, predicate, replacement) };
 }
 
-export function normalizePriceCeiling(value: string): string {
+function normalizePriceCeiling(value: string): string {
   const normalized = value.trim().replace(',', '.');
   if (!normalized) return '';
   const amount = Number(normalized);
@@ -114,7 +114,7 @@ export function normalizePriceCeiling(value: string): string {
   return String(Math.round(amount * 100) / 100);
 }
 
-export function setPriceCeiling(form: SearchFormState, value: string): SearchFormState {
+function setPriceCeiling(form: SearchFormState, value: string): SearchFormState {
   const normalized = normalizePriceCeiling(value);
   return {
     ...form,

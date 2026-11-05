@@ -1534,9 +1534,6 @@ class VintedClient:
             return None
         return datetime.fromtimestamp(exp, tz=UTC)
 
-    def get_cookie_expiry(self) -> datetime | None:
-        return self._extract_cookie_expiry()
-
     def get_refresh_token_expiry(self) -> datetime | None:
         token = (self._refresh_token or "").strip()
         if not token:

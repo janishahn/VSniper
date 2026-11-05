@@ -17,7 +17,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PATH="/app/.venv/bin:$PATH" \
-    APP_ENV=production \
     API_HOST=127.0.0.1 \
     API_PORT=8000 \
     VNC_PORT=6080 \

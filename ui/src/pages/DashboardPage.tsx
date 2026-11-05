@@ -123,7 +123,7 @@ function DataManagementPanel() {
     if (!file) return;
     const confirmed = window.confirm(
       `Importing "${file.name}" will OVERWRITE all current data (database, uploads, and cache).\n\n` +
-        'A timestamped backup of the previous state is kept under storage/.\n\n' +
+        'A timestamped backup of the previous state is kept in the data directory.\n\n' +
         'Continue?',
     );
     if (!confirmed) {

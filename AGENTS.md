@@ -79,7 +79,7 @@ When backend contracts change, update the TypeScript mirror and run `npm run bui
 
 ## Prompt changes
 
-Prompt experiments under `scripts/iter_*.py` use the live OpenAI API and the user's local reference photos, so they incur cost and produce gitignored outputs. Before changing a meta-prompt in `src/vsniper/integrations/openai/client.py`, run the relevant current and revised variants side by side and compare their output. Use `scripts/iter_prompts.py` for observation/taste prompts and the applicable `scripts/iter_judge*.py` harness for judge prompts.
+Prompt experiments under `scripts/iter_*.py` use the live OpenAI API and the user's local reference photos, so they incur cost and produce gitignored outputs. Before changing a meta-prompt in `src/vsniper/integrations/openai/client.py`, run the relevant current and revised variants side by side and compare their output. Use `scripts/iter_prompts.py` for observation/taste prompts and `scripts/iter_judge.py` for judge prompts.
 
 ## Verification
 

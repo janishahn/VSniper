@@ -3,7 +3,7 @@ import type { SearchFilter } from '../types';
 const categoryFields = new Set(['category', 'catalog']);
 const keywordFields = new Set(['keyword', 'keywords']);
 
-export function normaliseFilterText(value: string): string {
+function normaliseFilterText(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, ' ');
 }
 
@@ -19,7 +19,7 @@ export function isSizeFilter(filter: SearchFilter): boolean {
   return normaliseFilterText(filter.field) === 'size';
 }
 
-export function isKeywordFilter(filter: SearchFilter): boolean {
+function isKeywordFilter(filter: SearchFilter): boolean {
   return keywordFields.has(normaliseFilterText(filter.field));
 }
 
@@ -88,7 +88,7 @@ export function formatSearchFilters(filters: SearchFilter[]): string {
   return filters.map(formatFilter).join(' · ');
 }
 
-export function filterGroupKey(filter: SearchFilter): string {
+function filterGroupKey(filter: SearchFilter): string {
   if (isCategoryFilter(filter)) return 'category';
   if (isSizeFilter(filter)) return 'size';
   if (isPreferKeywordFilter(filter)) return 'keywords:include';

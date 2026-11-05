@@ -164,12 +164,6 @@ def as_aware(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC)
 
 
-def timestamp_to_datetime(value: int | None) -> datetime | None:
-    if value is None:
-        return None
-    return datetime.fromtimestamp(value, UTC)
-
-
 def _coerce_alert_threshold(value: int | None, *, fallback: int = 95) -> int:
     if value is None:
         value = fallback

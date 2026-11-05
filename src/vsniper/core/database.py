@@ -66,7 +66,7 @@ def dispose_engine() -> None:
 
 
 def _alembic_config() -> Config:
-    # backend/alembic.ini sits two directories above this file: src/vsniper/core/database.py
+    # alembic.ini sits at the project root, three directories above src/vsniper/core/
     backend_root = Path(__file__).resolve().parents[3]
     cfg = Config(str(backend_root / "alembic.ini"))
     cfg.set_main_option("script_location", str(backend_root / "alembic"))

@@ -497,16 +497,6 @@ class ScoreDistribution(BaseModel):
     bins: list[ScoreDistributionBin]
 
 
-class TransparencySnapshot(BaseModel):
-    system_prompt: str
-    user_prompt: str
-    taste_profile: TasteProfile | None = None
-    reference_observations: list[ReferenceObservation] = Field(default_factory=list)
-    extracted_attributes: list[str]
-    weights: list[FeatureWeight]
-    latest_learning_snapshot: LearningSnapshot | None = None
-
-
 class SearchUpdate(BaseModel):
     name: str = ""
     clothing_item: ClothingItem

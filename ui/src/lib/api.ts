@@ -79,7 +79,6 @@ export type AiModelSettingsSavePayload = Pick<
   | 'ai_judge_image_max_px'
 >;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
 // Carries the HTTP status (0 = network failure) alongside a human-readable
 // message so callers can branch on `status` and render the server detail.
@@ -158,7 +157,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+    response = await fetch(path, { ...init, headers });
   } catch {
     throw new ApiError(0, path);
   }
@@ -183,7 +182,7 @@ type BlobResponse = {
 async function requestBlob(path: string, init?: RequestInit): Promise<BlobResponse> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, init);
+    response = await fetch(path, init);
   } catch {
     throw new ApiError(0, path);
   }

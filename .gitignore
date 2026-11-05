@@ -31,29 +31,17 @@ vite.config.d.ts
 .DS_Store
 .vscode/
 .idea/
-/.antigravitycli/
 /.claude/
 
-# Local storage
-storage/uploads/
-storage/cache/
-storage/sqlite/*.db
-storage/sqlite/*.db-*
-storage/sqlite/*.sqlite
-storage/sqlite/*.sqlite-*
+# Local data
+storage/
 
 # Logs
 *.log
 
-# Reference-only cloned repo
-fbm-sniper-community/
-
-
+# Local reference photos for prompt experiments
 pics_of_clothes_i_like/
 
 # Prompt-iteration experiment outputs
 scripts/out_*.json
 scripts/grid_*.jpg
-
-vinted_dump/*
-storage/

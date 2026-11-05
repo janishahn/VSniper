@@ -48,7 +48,7 @@ export function StoragePage() {
 
   const onClearCache = () => {
     const confirmed = window.confirm(
-      'This clears the cached candidate listing thumbnails (storage/cache/candidate-images). ' +
+      'This clears the cached candidate listing thumbnails. ' +
         "They'll be re-downloaded from Vinted as needed on future scans.\n\n" +
         'Taste offer examples, uploads, and the database are not affected.\n\n' +
         'Continue?',

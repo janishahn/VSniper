@@ -32,10 +32,6 @@ class MaintenanceImportActive(MaintenanceBusy):
     """Raised when manual pause is requested but import maintenance is active."""
 
 
-class MaintenanceNotPaused(RuntimeError):
-    """Raised when resume is requested but mode is not manual."""
-
-
 class WorkerDrainTimeout(MaintenanceBusy):
     pass
 

@@ -45,7 +45,6 @@ UsageCallback = Callable[[str, str, int, int, int], None]
 
 OPENAI_API_BASE_URL = "https://api.openai.com/v1"
 CEREBRAS_API_BASE_URL = "https://api.cerebras.ai/v1"
-OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 REFERENCE_OBSERVATIONS_MAX_OUTPUT_TOKENS = 12000
 TASTE_PROFILE_MAX_OUTPUT_TOKENS = 16000
 POSITION_KEYS: tuple[GridPosition, ...] = (
@@ -1877,7 +1876,3 @@ class OpenAITasteClient:
             )
         return CandidateGridResult(batch_id=batch_id, image_bytes=contact_sheet, judgments=judgments)
 
-
-def read_image_file(path: Path) -> tuple[bytes, str]:
-    mime_type = mimetypes.guess_type(path.name)[0] or "image/jpeg"
-    return path.read_bytes(), mime_type

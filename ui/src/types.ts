@@ -309,16 +309,6 @@ export type JudgmentPromptPreview = {
   tokenizer: 'o200k_base';
 };
 
-export type TransparencySnapshot = {
-  system_prompt: string;
-  user_prompt: string;
-  taste_profile?: TasteProfile | null;
-  reference_observations: ReferenceObservation[];
-  extracted_attributes: string[];
-  weights: FeatureWeight[];
-  latest_learning_snapshot: LearningSnapshot | null;
-};
-
 export type AiModelProvider = 'openai' | 'cerebras' | 'local' | 'openrouter';
 
 export type ReasoningEffort = 'low' | 'medium' | 'high';

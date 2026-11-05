@@ -9,7 +9,6 @@ from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
 from vsniper.db.models import (
-    AiModelConfig,
     AppSettingsState,
     Candidate,
     LearningSnapshotState,
@@ -44,6 +43,7 @@ def _setup(monkeypatch, tmp_path):
         cache_dir=tmp_path / "cache",
         feedback_asset_dir=tmp_path / "feedback-assets",
         resolve_path=lambda value: value,
+        openai_vision_model="gpt-6.1-terra",
     )
     service = TasteService.__new__(TasteService)
     service.settings = settings
@@ -141,10 +141,7 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
 
 def _seed_recompute_prereqs(factory, *, job_id: str, taste_profile: dict, now: datetime) -> None:
     with factory() as session:
-        session.add(
-            AiModelConfig(id="m1", provider="openai", model_name="gpt-5", reasoning_effort="medium", display_name="Test")
-        )
-        session.add(AppSettingsState(id=1, vinted_region="de", learn_model_id="m1", observation_model_id="m1"))
+        session.add(AppSettingsState(id=1, vinted_region="de"))
         session.add(
             TasteState(
                 id=1,
@@ -160,7 +157,6 @@ def _seed_recompute_prereqs(factory, *, job_id: str, taste_profile: dict, now: d
 
 def test_superseded_recompute_job_does_not_clobber_newer_result(monkeypatch, tmp_path) -> None:
     service = _setup(monkeypatch, tmp_path)
-    service.settings.ai_learn_image_detail = "high"
     factory = service._test_factory
     now = datetime.now(UTC)
     original_profile = TasteProfile(summary="original", taste_prompt="original").model_dump(mode="json")

@@ -170,14 +170,6 @@ class AppSettingsState(Base):
     telegram_chat_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     telegram_configured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_telegram_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    judge_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    judge_fallback_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    learn_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    observation_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    vlm_grid_size: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    vlm_pack_multiple_listing_images: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    vlm_judge_parallel_requests: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    ai_judge_image_max_px: Mapped[int] = mapped_column(Integer, default=512, nullable=False)
     alert_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
     scan_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
     session_health: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -216,19 +208,6 @@ class ErrorEvent(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
-
-
-class AiModelConfig(Base):
-    __tablename__ = "ai_models"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)
-    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    reasoning_effort: Mapped[str] = mapped_column(String(32), nullable=False)
-    local_base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    display_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
 
 class AiUsageEvent(Base):
@@ -283,9 +262,7 @@ class SearchRun(Base):
     alert_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     queued_delivery_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     failures_by_reason: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    judge_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     judge_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     vinted_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     vinted_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)

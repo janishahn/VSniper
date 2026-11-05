@@ -4,15 +4,12 @@ These are module-level functions (not methods) so any service can reuse them wit
 constructing an AppState. They have no internal state beyond reading Settings."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vsniper.core.config import get_settings
 from vsniper.db.models import (
-    AiModelConfig as AiModelConfigRow,
     AppSettingsState,
     Candidate,
     LearningSnapshotState,
@@ -21,7 +18,6 @@ from vsniper.db.models import (
     TasteState,
 )
 from vsniper.domain.contracts import (
-    AiModelConfig,
     CandidateRecord,
     CLOTHING_ITEM_LABELS,
     LearningSnapshot,
@@ -53,34 +49,6 @@ def extract_condition(raw_listing: object) -> str:
     return ""
 
 
-@dataclass(frozen=True)
-class ResolvedAiModel:
-    """Plain snapshot of an `ai_models` row, safe to use after its session closes."""
-
-    id: str
-    provider: str
-    model_name: str
-    reasoning_effort: str
-    local_base_url: str | None
-
-
-def resolve_ai_model(session: Session, model_id: str | None) -> ResolvedAiModel | None:
-    """Look up an `ai_models` row by id within the given session. Returns None if `model_id`
-    is None or the row no longer exists (e.g. it was deleted out from under a stale reference)."""
-    if not model_id:
-        return None
-    row = session.get(AiModelConfigRow, model_id)
-    if row is None:
-        return None
-    return ResolvedAiModel(
-        id=row.id,
-        provider=row.provider,
-        model_name=row.model_name,
-        reasoning_effort=row.reasoning_effort,
-        local_base_url=row.local_base_url,
-    )
-
-
 def is_value_configured(value: str, *, placeholder: str) -> bool:
     return bool(value and value.strip() and value != placeholder)
 
@@ -104,41 +72,8 @@ def integration_configuration(
         effective_telegram_bot_token,
         placeholder="put-your-telegram-bot-token-here",
     ) and is_value_configured(effective_telegram_chat_id, placeholder="put-your-telegram-chat-id-here")
-    ai_configured = is_value_configured(runtime.ai_api_key, placeholder="put-your-ai-key-here")
+    ai_configured = is_value_configured(runtime.openai_api_key, placeholder="put-your-openai-api-key-here")
     return vinted_configured, telegram_configured, ai_configured
-
-
-def ai_configuration(
-    *,
-    judge_model: AiModelConfigRow | None,
-    judge_fallback_model: AiModelConfigRow | None,
-    learn_model: AiModelConfigRow | None,
-) -> tuple[bool, bool, bool]:
-    """Returns (ai_configured, judge_configured, learning_configured) derived from whether the
-    referenced registry rows exist. A `None` model id (no row resolved) means "not configured"."""
-    runtime = get_settings()
-    openai_ready = is_value_configured(runtime.ai_api_key, placeholder="put-your-ai-key-here")
-    cerebras_ready = is_value_configured(runtime.cerebras_api_key, placeholder="put-your-cerebras-api-key-here")
-    openrouter_ready = is_value_configured(
-        runtime.openrouter_api_key, placeholder="put-your-openrouter-api-key-here"
-    )
-
-    def _model_ready(model: AiModelConfigRow | None) -> bool:
-        if model is None:
-            return False
-        if model.provider == "openai":
-            return openai_ready
-        if model.provider == "cerebras":
-            return cerebras_ready
-        if model.provider == "openrouter":
-            return openrouter_ready
-        return bool(model.local_base_url and model.local_base_url.strip())
-
-    judge_configured = _model_ready(judge_model)
-    if judge_fallback_model is not None:
-        judge_configured = judge_configured and _model_ready(judge_fallback_model)
-    learning_configured = _model_ready(learn_model)
-    return judge_configured and learning_configured, judge_configured, learning_configured
 
 
 def build_session_health(*, region: str) -> SessionHealth:
@@ -276,22 +211,10 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
     runtime = get_settings()
     telegram_bot_token = model.telegram_bot_token or runtime.telegram_bot_token
     telegram_chat_id = model.telegram_chat_id or runtime.telegram_chat_id
-    vinted_configured, telegram_configured, _ = integration_configuration(
+    vinted_configured, telegram_configured, ai_configured = integration_configuration(
         db_cookie=model.vinted_cookie,
         telegram_bot_token=telegram_bot_token,
         telegram_chat_id=telegram_chat_id,
-    )
-
-    model_rows = session.scalars(select(AiModelConfigRow)).all()
-    models_by_id = {row.id: row for row in model_rows}
-    judge_model = models_by_id.get(model.judge_model_id) if model.judge_model_id else None
-    judge_fallback_model = models_by_id.get(model.judge_fallback_model_id) if model.judge_fallback_model_id else None
-    learn_model = models_by_id.get(model.learn_model_id) if model.learn_model_id else None
-
-    ai_configured, judge_configured, learning_configured = ai_configuration(
-        judge_model=judge_model,
-        judge_fallback_model=judge_fallback_model,
-        learn_model=learn_model,
     )
     return SettingsSnapshot.model_validate(
         {
@@ -303,35 +226,8 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
             "vinted_configured": vinted_configured,
             "telegram_configured": telegram_configured,
             "ai_configured": ai_configured,
-            "judge_configured": judge_configured,
-            "learning_configured": learning_configured,
-            "judge_model_id": model.judge_model_id,
-            "judge_fallback_model_id": model.judge_fallback_model_id,
-            "learn_model_id": model.learn_model_id,
-            "observation_model_id": model.observation_model_id,
-            "models": [
-                AiModelConfig.model_validate(
-                    {
-                        "id": row.id,
-                        "provider": row.provider,
-                        "model_name": row.model_name,
-                        "reasoning_effort": row.reasoning_effort,
-                        "local_base_url": row.local_base_url,
-                        "display_name": row.display_name,
-                        "created_at": row.created_at,
-                        "updated_at": row.updated_at,
-                    }
-                )
-                for row in model_rows
-            ],
-            "vlm_grid_size": model.vlm_grid_size,
-            "vlm_pack_multiple_listing_images": (
-                True
-                if getattr(model, "vlm_pack_multiple_listing_images", True) is None
-                else model.vlm_pack_multiple_listing_images
-            ),
-            "vlm_judge_parallel_requests": model.vlm_judge_parallel_requests,
-            "ai_judge_image_max_px": model.ai_judge_image_max_px,
+            "vision_model": runtime.openai_vision_model,
+            "decision_model": runtime.openai_decision_model,
             "alert_threshold": _coerce_alert_threshold(getattr(model, "alert_threshold", 95)),
             "scan_interval_seconds": getattr(model, "scan_interval_seconds", 1800),
             "blocked_brands": list(model.blocked_brands or []),

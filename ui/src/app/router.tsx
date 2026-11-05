@@ -1,7 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 
 import { AppLayout } from './App';
-import { AiModelsPage } from '../pages/AiModelsPage';
 import { CandidatesPage } from '../pages/CandidatesPage';
 import { CostsPage } from '../pages/CostsPage';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -21,7 +20,6 @@ export const router = createBrowserRouter([
       { path: 'searches', element: <SearchesPage /> },
       { path: 'candidates', element: <CandidatesPage /> },
       { path: 'costs', element: <CostsPage /> },
-      { path: 'ai-models', element: <AiModelsPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'storage', element: <StoragePage /> },
       { path: 'errors', element: <ErrorsPage /> },

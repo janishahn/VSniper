@@ -55,9 +55,7 @@ def _search_run_to_record(row: SearchRun) -> SearchRunRecord:
         alert_count=row.alert_count,
         queued_delivery_count=row.queued_delivery_count,
         failures_by_reason=row.failures_by_reason,
-        judge_provider=row.judge_provider,
         judge_model=row.judge_model,
-        fallback_used=row.fallback_used,
         vinted_status=row.vinted_status,
         vinted_detail=row.vinted_detail,
         cost_usd=row.cost_usd,
@@ -297,9 +295,7 @@ def finish_search_run(
     alert_count: int = 0,
     queued_delivery_count: int = 0,
     failures_by_reason: dict[str, int] | None = None,
-    judge_provider: str | None = None,
     judge_model: str | None = None,
-    fallback_used: bool = False,
     vinted_status: str | None = None,
     vinted_detail: str | None = None,
     cost_usd: float = 0.0,
@@ -323,9 +319,7 @@ def finish_search_run(
         run.alert_count = alert_count
         run.queued_delivery_count = queued_delivery_count
         run.failures_by_reason = failures_by_reason
-        run.judge_provider = judge_provider
         run.judge_model = judge_model
-        run.fallback_used = fallback_used
         run.vinted_status = vinted_status
         run.vinted_detail = vinted_detail
         run.cost_usd = cost_usd

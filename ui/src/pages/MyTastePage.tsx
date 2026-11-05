@@ -1281,7 +1281,6 @@ export function MyTastePage() {
     total_image_inputs: number;
     cached_observations: number;
     fresh_observations: number;
-    observation_provider: 'local' | 'openai';
     observation_model: string;
   } | null>(null);
   const manualNoteDirty = useRef(false);
@@ -1486,7 +1485,7 @@ export function MyTastePage() {
           </strong>
           {lastObservationCache && (
             <span className="muted" style={{ fontSize: '0.78rem' }}>
-              {lastObservationCache.observation_provider} · {lastObservationCache.observation_model || 'n/a'} · {lastObservationCache.total_image_inputs} images
+              {lastObservationCache.observation_model || 'n/a'} · {lastObservationCache.total_image_inputs} images
             </span>
           )}
         </article>

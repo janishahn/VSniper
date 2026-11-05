@@ -7,7 +7,7 @@ It runs as one container: the FastAPI app serves the web UI, scans saved searche
 ## Run it
 
 ```bash
-cp .env.example .env   # add the Vinted cookie, Telegram bot token and chat ID, AI keys
+cp .env.example .env   # add the Vinted cookie, Telegram bot token and chat ID, OpenAI key
 docker compose pull
 docker compose up -d
 ```

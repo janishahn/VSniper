@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, event, update
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import AiModelConfig, AppSettingsState, Candidate, Search, SearchRun
+from vsniper.db.models import AppSettingsState, Candidate, Search, SearchRun
 from vsniper.domain.contracts import ScoreTrace, SearchRecord, SearchUpdate, TasteProfile
 from vsniper.services._mapping import build_session_health
 from vsniper.services.search_service import (
@@ -212,21 +212,9 @@ def _persist_minimal(service, factory, *, mode):
 def _wire_run(service, factory, *, run_search):
     """Stub the Phase-1 dependencies _run reads so we can drive it end-to-end with a fake
     Vinted client. run_search is the callable used as VintedClient.run_search."""
-    now = datetime.now(UTC)
     with _session_scope_of(factory) as session:
-        session.add(
-            AiModelConfig(
-                id="model-default-judge",
-                provider="openai",
-                model_name="gpt-5",
-                reasoning_effort="low",
-                local_base_url=None,
-                display_name="gpt-5 (Openai) · low",
-                created_at=now,
-                updated_at=now,
-            )
-        )
-        session.add(AppSettingsState(id=1, vinted_region="de", judge_model_id="model-default-judge"))
+        session.add(AppSettingsState(id=1, vinted_region="de"))
+    service.settings = type("Settings", (), {"openai_decision_model": "gpt-6-luna"})()
 
     profile = TasteProfile(summary="", taste_prompt="", transparency_labels=[])
     service.preferences = type(
@@ -321,7 +309,7 @@ def test_cancelled_run_persists_partial_results_and_closes_run(monkeypatch, tmp_
     _wire_run(service, factory, run_search=lambda *args, **kwargs: [_raw_candidate()])
     _set(factory, run_status="running", last_claimed_at=datetime.now(UTC))
 
-    def fake_judge(raw_candidates, search_record, taste_profile, db_settings, mode, manual_note="", on_usage=None, new_judged_ids=None, cancel_check=None, **kwargs):
+    def fake_judge(raw_candidates, search_record, taste_profile, mode, manual_note="", on_usage=None, new_judged_ids=None, cancel_check=None, **kwargs):
         trace = ScoreTrace(final_score=8.0, score_10=8, threshold=7.0, decision="alert", summary="alert", model="gpt-5")
         alert_count, queued, _judged = service._persist_candidate_batch(
             raw_candidates=raw_candidates,

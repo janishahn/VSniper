@@ -48,7 +48,6 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
     runtime = SimpleNamespace(
         vinted_cookie="put-your-vinted-cookie-here",
         telegram_bot_token="put-your-telegram-bot-token-here",
-        telegram_webhook_secret="put-your-telegram-webhook-secret-here",
         ai_api_key="put-your-ai-key-here",
         cerebras_api_key="put-your-cerebras-api-key-here",
         openrouter_api_key="put-your-openrouter-api-key-here",

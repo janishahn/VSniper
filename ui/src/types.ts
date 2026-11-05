@@ -353,8 +353,6 @@ export type SettingsSnapshot = {
   vinted_refresh_token: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
-  telegram_webhook_url: string;
-  telegram_webhook_secret: string;
   vinted_configured: boolean;
   telegram_configured: boolean;
   ai_configured: boolean;
@@ -423,21 +421,6 @@ export type ErrorEventPage = {
 export type ErrorNotificationSettings = {
   enabled: boolean;
   telegram_configured: boolean;
-};
-
-export type TelegramWebhookStatus = {
-  last_check_ok: boolean;
-  is_registered: boolean;
-  matches_configured_url: boolean;
-  configured_url?: string | null;
-  effective_url?: string | null;
-  has_secret_token: boolean;
-  pending_update_count: number;
-  allowed_updates: string[];
-  last_error_message?: string | null;
-  last_error_at?: string | null;
-  checked_at: string;
-  detail: string;
 };
 
 export type SearchRunResult = {

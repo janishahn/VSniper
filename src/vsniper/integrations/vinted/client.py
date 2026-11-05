@@ -28,6 +28,8 @@ from vsniper.integrations.vinted.category_aliases import CATEGORY_ALIAS_IDS
 SESSION_HEALTH_TTL = timedelta(minutes=15)
 FILTER_OPTION_CACHE_TTL = timedelta(hours=6)
 TOKEN_REFRESH_BUFFER = timedelta(minutes=5)
+# noVNC is served under /vinted-browser/ and needs its websocket path spelled out there.
+VINTED_BROWSER_VIEWER_PATH = "/vinted-browser/vnc.html?autoconnect=1&resize=scale&path=vinted-browser/websockify"
 VINTED_CATALOG_PER_PAGE = 96
 VINTED_CURRENCY = "EUR"
 VINTED_GATEWAY_BASE_URL = "https://api.vinted.de"
@@ -583,7 +585,7 @@ class VintedClient:
                 raise VintedBrowserActionError(
                     str(exc),
                     code="vinted_browser_challenge",
-                    recovery_path="/vinted-browser/?autoconnect=1&resize=scale",
+                    recovery_path=VINTED_BROWSER_VIEWER_PATH,
                 ) from exc
             except BrowserListingUnconfiguredError as exc:
                 raise VintedBrowserActionError(

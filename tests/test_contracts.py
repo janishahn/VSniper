@@ -114,8 +114,6 @@ def test_settings_snapshot_splits_local_judge_from_openai_learning(monkeypatch) 
             vinted_cookie="put-your-vinted-cookie-here",
             telegram_bot_token="put-your-telegram-bot-token-here",
             telegram_chat_id="put-your-telegram-chat-id-here",
-            telegram_webhook_url="",
-            telegram_webhook_secret="",
             ai_api_key="put-your-ai-key-here",
             cerebras_api_key="put-your-cerebras-api-key-here",
             openrouter_api_key="put-your-openrouter-api-key-here",
@@ -151,8 +149,6 @@ def test_settings_snapshot_splits_local_judge_from_openai_learning(monkeypatch) 
             vinted_refresh_token="",
             telegram_bot_token="",
             telegram_chat_id="",
-            telegram_webhook_url="",
-            telegram_webhook_secret="",
             telegram_configured=False,
             # No learn_model_id set, so learning (and therefore overall ai_configured) stays
             # unconfigured even though the local judge model is fully set up.

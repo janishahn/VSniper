@@ -284,8 +284,6 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
     runtime = get_settings()
     telegram_bot_token = model.telegram_bot_token or runtime.telegram_bot_token
     telegram_chat_id = model.telegram_chat_id or runtime.telegram_chat_id
-    telegram_webhook_url = model.telegram_webhook_url or runtime.telegram_webhook_url
-    telegram_webhook_secret = model.telegram_webhook_secret or runtime.telegram_webhook_secret
     vinted_configured, telegram_configured, _ = integration_configuration(
         db_cookie=model.vinted_cookie,
         telegram_bot_token=telegram_bot_token,
@@ -310,8 +308,6 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
             "vinted_refresh_token": model.vinted_refresh_token or "",
             "telegram_bot_token": telegram_bot_token,
             "telegram_chat_id": telegram_chat_id,
-            "telegram_webhook_url": telegram_webhook_url,
-            "telegram_webhook_secret": telegram_webhook_secret,
             "vinted_configured": vinted_configured,
             "telegram_configured": telegram_configured,
             "ai_configured": ai_configured,

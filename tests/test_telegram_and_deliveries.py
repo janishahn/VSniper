@@ -8,9 +8,7 @@ from types import SimpleNamespace
 from typing import Callable
 
 import httpx
-from fastapi.testclient import TestClient
 
-from vsniper.api.main import app
 from vsniper.db.models import AlertDeliveryState, AppSettingsState
 from vsniper.domain.contracts import (
     SearchDraftApplyResult,
@@ -75,43 +73,39 @@ def test_telegram_client_answers_callback_queries() -> None:
     assert result == {'result': True}
 
 
-def test_telegram_client_gets_and_sets_webhook_info() -> None:
-    requests: list[tuple[str, str, dict | None]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = request.read()
-        payload = json.loads(body.decode('utf-8')) if body else None
-        requests.append((request.method, request.url.path, payload))
-        if request.url.path.endswith('/getWebhookInfo'):
-            return httpx.Response(200, json={"ok": True, "result": {"url": "https://example.com/api/telegram/webhook", "pending_update_count": 0}})
-        if request.url.path.endswith('/setWebhook'):
-            return httpx.Response(200, json={"ok": True, "result": True})
-        raise AssertionError(f'unexpected path {request.url.path}')
-
-    client = TelegramClient(
-        bot_token='bot-token',
-        client=httpx.Client(transport=httpx.MockTransport(handler)),
+def test_poll_updates_clears_webhook_once_and_handles_each_update(monkeypatch) -> None:
+    service = _build_telegram_service_without_init()
+    service._polling_bot_token = None
+    calls: list[tuple[str, object]] = []
+    batches = [[{'update_id': 7, 'message': {'message_id': 1, 'text': 'hi', 'chat': {'id': 523}}}], []]
+    service.telegram_client = SimpleNamespace(
+        bot_token='',
+        delete_webhook=lambda: calls.append(('delete_webhook', None)),
+        get_updates=lambda **kwargs: (calls.append(('get_updates', kwargs['offset'])), batches.pop(0))[1],
+    )
+    handled: list[int | None] = []
+    monkeypatch.setattr(service, 'handle_update', lambda update, **_: handled.append(update.update_id))
+    monkeypatch.setattr(
+        'vsniper.services.telegram_service._telegram_config',
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    info = client.get_webhook_info()
-    result = client.set_webhook(
-        url='https://example.com/api/telegram/webhook',
-        secret_token='secret-token',
-        allowed_updates=['callback_query'],
-        drop_pending_updates=True,
+    first = service.poll_updates(offset=0, timeout_seconds=1)
+    second = service.poll_updates(offset=first, timeout_seconds=1)
+
+    assert (first, second) == (8, 8)
+    assert handled == [7]
+    assert calls == [('delete_webhook', None), ('get_updates', 0), ('get_updates', 8)]
+
+
+def test_poll_updates_waits_for_a_bot_token(monkeypatch) -> None:
+    service = _build_telegram_service_without_init()
+    monkeypatch.setattr(
+        'vsniper.services.telegram_service._telegram_config',
+        lambda: TelegramRuntimeConfig('put-your-telegram-bot-token-here', ''),
     )
 
-    assert info['url'] == 'https://example.com/api/telegram/webhook'
-    assert result == {'result': True}
-    assert requests[0][0] == 'GET'
-    assert requests[0][1].endswith('/getWebhookInfo')
-    assert requests[1][0] == 'POST'
-    assert requests[1][2] == {
-        'url': 'https://example.com/api/telegram/webhook',
-        'allowed_updates': ['callback_query'],
-        'drop_pending_updates': True,
-        'secret_token': 'secret-token',
-    }
+    assert service.poll_updates(offset=0, timeout_seconds=1) is None
 
 
 def test_telegram_client_edits_messages() -> None:
@@ -196,8 +190,6 @@ def test_refresh_token_expiry_warning_sends_once_and_persists_marker(monkeypatch
     settings_row = SimpleNamespace(
         telegram_bot_token='bot-token',
         telegram_chat_id='chat-123',
-        telegram_webhook_url='',
-        telegram_webhook_secret='',
         session_health={},
         refresh_token_expiry_warning_sent_for=None,
     )
@@ -239,8 +231,6 @@ def test_refresh_token_expiry_warning_ignores_far_future_refresh_token(monkeypat
     settings_row = SimpleNamespace(
         telegram_bot_token='bot-token',
         telegram_chat_id='chat-123',
-        telegram_webhook_url='',
-        telegram_webhook_secret='',
         session_health={},
     )
     sent_messages: list[dict[str, str]] = []
@@ -333,8 +323,6 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
                 return SimpleNamespace(
                     telegram_bot_token='bot-token',
                     telegram_chat_id='chat-123',
-                    telegram_webhook_url='',
-                    telegram_webhook_secret='',
                 )
             if model is AlertDeliveryState and key == delivery.id:
                 return delivery
@@ -414,8 +402,6 @@ def test_process_pending_deliveries_marks_successful_sends(monkeypatch) -> None:
                 return SimpleNamespace(
                     telegram_bot_token='bot-token',
                     telegram_chat_id='chat-123',
-                    telegram_webhook_url='',
-                    telegram_webhook_secret='',
                 )
             if model is AlertDeliveryState and key == delivery.id:
                 return delivery
@@ -498,8 +484,6 @@ def test_process_pending_deliveries_writes_back_each_delivery_independently(monk
                 return SimpleNamespace(
                     telegram_bot_token='bot-token',
                     telegram_chat_id='chat-123',
-                    telegram_webhook_url='',
-                    telegram_webhook_secret='',
                 )
             if model is AlertDeliveryState:
                 return deliveries.get(key)
@@ -591,10 +575,10 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, None),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {
                 'update_id': 1001,
@@ -655,10 +639,10 @@ def test_handle_telegram_webhook_rejects_feedback_from_unauthorized_chat(monkeyp
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, None),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {
                 'update_id': 1002,
@@ -719,10 +703,10 @@ def test_taste_command_sends_status_for_authorized_chat(monkeypatch) -> None:
 
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, None),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {'update_id': 1, 'message': {'message_id': 10, 'text': '/taste', 'chat': {'id': 523}}}
         )
@@ -759,10 +743,10 @@ def test_taste_recompute_callback_schedules_background_job(monkeypatch) -> None:
 
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, 'hook-secret'),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {
                 'update_id': 1,
@@ -807,10 +791,10 @@ def test_taste_recompute_callback_detects_already_running(monkeypatch) -> None:
 
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, 'hook-secret'),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {
                 'update_id': 1,
@@ -850,10 +834,10 @@ def test_taste_apply_drafts_callback_confirms_result(monkeypatch) -> None:
 
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, 'hook-secret'),
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
     )
 
-    result = service.handle_webhook(
+    result = service.handle_update(
         TelegramUpdate.model_validate(
             {
                 'update_id': 1,
@@ -873,46 +857,6 @@ def test_taste_apply_drafts_callback_confirms_result(monkeypatch) -> None:
     assert acknowledgements == [{'callback_query_id': 'cb-taste-3', 'text': 'Draft decision saved.'}]
 
 
-def test_taste_recompute_callback_blocked_without_webhook_secret(monkeypatch) -> None:
-    service = _build_telegram_service_without_init()
-    acknowledgements: list[dict] = []
-    service.telegram_client = SimpleNamespace(
-        bot_token='',
-        edit_message_text=lambda **kwargs: None,
-        send_message=lambda **kwargs: None,
-        answer_callback_query=lambda **kwargs: acknowledgements.append(kwargs),
-    )
-    service.telegram_formatter = TelegramFormatter()
-
-    def _must_not_claim(source):
-        raise AssertionError('recompute must not be claimed without a configured webhook secret')
-
-    service.taste = SimpleNamespace(claim_recompute=_must_not_claim)
-
-    monkeypatch.setattr(
-        'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523', None, None),
-    )
-
-    result = service.handle_webhook(
-        TelegramUpdate.model_validate(
-            {
-                'update_id': 1,
-                'callback_query': {
-                    'id': 'cb-taste-nosecret',
-                    'data': 'taste:recompute',
-                    'message': {'message_id': 77, 'text': 'taste status', 'chat': {'id': 523}},
-                },
-            }
-        ),
-        schedule_background=lambda task: (_ for _ in ()).throw(AssertionError('should not schedule')),
-    )
-
-    assert result.action == 'unauthorized'
-    assert 'TELEGRAM_WEBHOOK_SECRET' in result.detail
-    assert acknowledgements[0]['callback_query_id'] == 'cb-taste-nosecret'
-
-
 def test_taste_recompute_completion_message_includes_cost_and_cache_stats() -> None:
     message = TelegramFormatter().build_taste_recompute_success_message(
         TasteRecomputeResult(
@@ -927,38 +871,3 @@ def test_taste_recompute_completion_message_includes_cost_and_cache_stats() -> N
     assert 'Cost: $0.1234' in message
     assert 'Tokens: 100 in / 20 out' in message
     assert 'Observation cache: 4 cached / 1 fresh' in message
-
-
-def test_telegram_webhook_route_smoke(monkeypatch) -> None:
-    fake_telegram = SimpleNamespace(
-        is_webhook_secret_valid=lambda provided: provided == 'secret-token',
-        handle_webhook=lambda payload: {
-            'ok': True,
-            'action': 'feedback_recorded',
-            'detail': 'Recorded Telegram like feedback and refreshed learning snapshots.',
-            'candidate_id': 'cand-smoke',
-            'delivery_id': '123',
-            'verdict': 'like',
-            'learning_snapshot_id': 'snapshot-smoke',
-        },
-    )
-    fake_state = SimpleNamespace(telegram=fake_telegram)
-
-    monkeypatch.setattr('vsniper.api.routes.telegram.get_state', lambda: fake_state)
-
-    client = TestClient(app)
-    response = client.post(
-        '/api/telegram/webhook',
-        headers={'X-Telegram-Bot-Api-Secret-Token': 'secret-token'},
-        json={
-            'update_id': 1,
-            'callback_query': {
-                'id': 'callback-route-1',
-                'data': 'feedback:123:like',
-                'message': {'message_id': 7, 'text': 'alert body', 'chat': {'id': 1}},
-            },
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()['action'] == 'feedback_recorded'

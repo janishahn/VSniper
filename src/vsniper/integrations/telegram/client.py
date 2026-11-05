@@ -94,34 +94,26 @@ class TelegramClient:
 
         return self._post_method("editMessageText", payload=payload)
 
-    def get_webhook_info(self) -> dict[str, Any]:
-        if not self.bot_token or self.bot_token == "put-your-telegram-bot-token-here":
-            raise TelegramConfigurationError("Telegram bot token is missing. Add TELEGRAM_BOT_TOKEN to the environment.")
+    def delete_webhook(self) -> dict[str, Any]:
+        """getUpdates is refused while a webhook is registered, so polling starts by removing it."""
+        self._require_bot_token()
+        return self._post_method("deleteWebhook", payload={"drop_pending_updates": False})
 
-        return self._request_method("getWebhookInfo", method="GET")
-
-    def set_webhook(
-        self,
-        *,
-        url: str,
-        secret_token: str | None = None,
-        allowed_updates: list[str] | None = None,
-        drop_pending_updates: bool = False,
-    ) -> dict[str, Any]:
-        if not self.bot_token or self.bot_token == "put-your-telegram-bot-token-here":
-            raise TelegramConfigurationError("Telegram bot token is missing. Add TELEGRAM_BOT_TOKEN to the environment.")
-        if not url.strip():
-            raise TelegramDeliveryError("Telegram webhook URL is empty.", retryable=False)
-
+    def get_updates(self, *, offset: int, timeout_seconds: int) -> list[dict[str, Any]]:
+        self._require_bot_token()
         payload: dict[str, Any] = {
-            "url": url.strip(),
-            "allowed_updates": allowed_updates or ["callback_query"],
-            "drop_pending_updates": drop_pending_updates,
+            "offset": offset,
+            "timeout": timeout_seconds,
+            "allowed_updates": ["callback_query", "message"],
         }
-        if secret_token and secret_token.strip():
-            payload["secret_token"] = secret_token.strip()
+        result = self._request_method(
+            "getUpdates", payload=payload, method="POST", timeout=self.timeout + timeout_seconds
+        )["result"]
+        return [update for update in result if isinstance(update, dict)]
 
-        return self._post_method("setWebhook", payload=payload)
+    def _require_bot_token(self) -> None:
+        if not self.bot_token or self.bot_token == "put-your-telegram-bot-token-here":
+            raise TelegramConfigurationError("Telegram bot token is missing. Add TELEGRAM_BOT_TOKEN to the environment.")
 
     def _post_method(self, method: str, *, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request_method(method, payload=payload, method="POST")
@@ -132,13 +124,15 @@ class TelegramClient:
         *,
         payload: dict[str, Any] | None = None,
         method: str = "POST",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         response: httpx.Response
         try:
             if self._client is not None:
-                response = self._client.request(method, self._method_url(telegram_method), json=payload)
+                extra: dict[str, Any] = {"timeout": timeout} if timeout is not None else {}
+                response = self._client.request(method, self._method_url(telegram_method), json=payload, **extra)
             else:
-                with httpx.Client(timeout=self.timeout) as client:
+                with httpx.Client(timeout=timeout or self.timeout) as client:
                     response = client.request(method, self._method_url(telegram_method), json=payload)
         except httpx.TimeoutException as exc:
             raise TelegramDeliveryError(f"Telegram {telegram_method} timed out.", retryable=True) from exc

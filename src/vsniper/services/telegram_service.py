@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import hmac
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Callable, Literal, cast
@@ -21,9 +21,7 @@ from vsniper.domain.contracts import (
     TelegramCallbackQuery,
     TelegramMessage,
     TelegramUpdate,
-    TelegramWebhookRegistrationPayload,
-    TelegramWebhookResult,
-    TelegramWebhookStatus,
+    TelegramUpdateResult,
 )
 from vsniper.integrations.telegram.client import TelegramClient
 from vsniper.integrations.telegram.service import TelegramFormatter
@@ -32,7 +30,6 @@ from vsniper.services._mapping import (
     as_aware,
     candidate_to_contract,
     is_value_configured,
-    timestamp_to_datetime,
 )
 from vsniper.services.candidate_service import CandidateService
 from vsniper.services.error_service import ErrorService
@@ -53,36 +50,15 @@ DEDUP_DELIVERY_STATUSES = ACTIVE_DELIVERY_STATUSES + ("failed",)
 class TelegramRuntimeConfig:
     bot_token: str
     chat_id: str
-    webhook_url: str | None
-    webhook_secret: str | None
-
-
-def _configured_or_none(value: str, *, placeholder: str) -> str | None:
-    stripped = value.strip()
-    if not is_value_configured(stripped, placeholder=placeholder):
-        return None
-    return stripped
 
 
 def _telegram_config_from_model(model: AppSettingsState | None) -> TelegramRuntimeConfig:
     runtime = get_settings()
     bot_token = (model.telegram_bot_token if model and model.telegram_bot_token else runtime.telegram_bot_token).strip()
     chat_id = (model.telegram_chat_id if model and model.telegram_chat_id else runtime.telegram_chat_id).strip()
-    webhook_url_value = model.telegram_webhook_url if model and model.telegram_webhook_url else runtime.telegram_webhook_url
-    webhook_secret_value = (
-        model.telegram_webhook_secret if model and model.telegram_webhook_secret else runtime.telegram_webhook_secret
-    )
     return TelegramRuntimeConfig(
         bot_token=bot_token,
         chat_id=chat_id,
-        webhook_url=_configured_or_none(
-            webhook_url_value,
-            placeholder="put-your-telegram-webhook-url-here",
-        ),
-        webhook_secret=_configured_or_none(
-            webhook_secret_value,
-            placeholder="put-your-telegram-webhook-secret-here",
-        ),
     )
 
 
@@ -110,100 +86,13 @@ class TelegramService:
         self.taste = taste
         self.errors = errors
         self._apply_search_drafts: Callable[[int | None], SearchDraftApplyResult] | None = None
+        self._polling_bot_token: str | None = None
 
     def set_search_draft_applier(self, applier: Callable[[int | None], SearchDraftApplyResult]) -> None:
         self._apply_search_drafts = applier
 
     def _apply_bot_token(self, config: TelegramRuntimeConfig) -> None:
         self.telegram_client.bot_token = config.bot_token
-
-    def get_webhook_status(self) -> TelegramWebhookStatus:
-        checked_at = datetime.now(UTC)
-        config = _telegram_config()
-        self._apply_bot_token(config)
-        configured_url = config.webhook_url
-        configured_secret = config.webhook_secret
-
-        try:
-            info = self.telegram_client.get_webhook_info()
-        except Exception as exc:
-            return TelegramWebhookStatus(
-                last_check_ok=False,
-                is_registered=False,
-                matches_configured_url=False,
-                configured_url=configured_url,
-                effective_url=None,
-                has_secret_token=bool(configured_secret),
-                checked_at=checked_at,
-                detail=str(exc),
-            )
-
-        effective_url = info.get("url") or None
-        raw_allowed_updates = info.get("allowed_updates")
-        allowed_updates = raw_allowed_updates if isinstance(raw_allowed_updates, list) else []
-        matches_configured_url = bool(configured_url and effective_url and configured_url == effective_url)
-        if effective_url and configured_url and matches_configured_url:
-            detail = "Telegram webhook is registered and matches the configured URL."
-        elif effective_url and configured_url:
-            detail = "Telegram webhook is registered, but the live URL differs from the configured URL."
-        elif effective_url:
-            detail = "Telegram webhook is registered, but no local TELEGRAM_WEBHOOK_URL is configured."
-        else:
-            detail = "Telegram webhook is not registered yet."
-
-        return TelegramWebhookStatus(
-            last_check_ok=True,
-            is_registered=bool(effective_url),
-            matches_configured_url=matches_configured_url,
-            configured_url=configured_url,
-            effective_url=effective_url,
-            has_secret_token=bool(configured_secret),
-            pending_update_count=int(info.get("pending_update_count") or 0),
-            allowed_updates=[str(item) for item in allowed_updates],
-            last_error_message=info.get("last_error_message"),
-            last_error_at=timestamp_to_datetime(info.get("last_error_date")),
-            checked_at=checked_at,
-            detail=detail,
-        )
-
-    def configure_webhook(self, payload: TelegramWebhookRegistrationPayload) -> TelegramWebhookStatus:
-        with session_scope() as session:
-            model = session.get(AppSettingsState, 1)
-            config = _telegram_config_from_model(model)
-            target_url = str(payload.url) if payload.url is not None else config.webhook_url
-            if payload.url is not None and model is not None:
-                model.telegram_webhook_url = str(payload.url).strip()
-                config = _telegram_config_from_model(model)
-        if not target_url:
-            raise ValueError(
-                "No Telegram webhook URL was provided. Set TELEGRAM_WEBHOOK_URL or provide a URL when registering."
-            )
-
-        self._apply_bot_token(config)
-        self.telegram_client.set_webhook(
-            url=target_url,
-            secret_token=config.webhook_secret,
-            allowed_updates=["callback_query", "message"],
-            drop_pending_updates=payload.drop_pending_updates,
-        )
-        return self.get_webhook_status()
-
-    def is_webhook_secret_valid(self, provided_secret: str | None) -> bool:
-        expected_secret = _telegram_config().webhook_secret
-        if expected_secret is None:
-            # No secret configured: the endpoint cannot authenticate that the request
-            # actually came from Telegram, so it falls open here. Inbound chat-id
-            # authorization on every mutating path is the defense-in-depth that keeps
-            # forged updates from poisoning taste learning, but configuring
-            # TELEGRAM_WEBHOOK_SECRET is strongly recommended.
-            logger.warning(
-                "Telegram webhook accepted without a configured secret token; "
-                "set TELEGRAM_WEBHOOK_SECRET to authenticate inbound requests."
-            )
-            return True
-        if provided_secret is None:
-            return False
-        return hmac.compare_digest(provided_secret, expected_secret)
 
     def send_test_notification(self) -> dict[str, object]:
         config = _telegram_config()
@@ -614,7 +503,7 @@ class TelegramService:
                     details={"callback_query_id": callback_query_id},
                 )
 
-    def _update_feedback_message(self, callback_query: TelegramCallbackQuery, result: TelegramWebhookResult) -> None:
+    def _update_feedback_message(self, callback_query: TelegramCallbackQuery, result: TelegramUpdateResult) -> None:
         if result.action not in {"feedback_recorded", "feedback_unchanged"} or result.verdict is None:
             return
 
@@ -656,7 +545,7 @@ class TelegramService:
                 )
 
     @staticmethod
-    def _callback_ack_text(result: TelegramWebhookResult) -> str:
+    def _callback_ack_text(result: TelegramUpdateResult) -> str:
         if result.action == "feedback_recorded" and result.verdict is not None:
             return f"Saved {result.verdict} feedback."
         if result.action == "feedback_unchanged" and result.verdict is not None:
@@ -728,17 +617,17 @@ class TelegramService:
                 logger.warning("Failed to edit Telegram taste message; sending a new one instead", exc_info=True)
         self._send_telegram_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
 
-    def _handle_taste_command(self, message: TelegramMessage, config: TelegramRuntimeConfig) -> TelegramWebhookResult:
+    def _handle_taste_command(self, message: TelegramMessage, config: TelegramRuntimeConfig) -> TelegramUpdateResult:
         chat_id = self._message_chat_id(message)
         if not self._is_authorized_chat(chat_id, config):
-            return TelegramWebhookResult(action="unauthorized", detail="Telegram chat is not authorized for taste controls.")
+            return TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized for taste controls.")
         snapshot = self.taste.get_snapshot()
         self._send_telegram_message(
             chat_id=cast(int | str, chat_id),
             text=self.telegram_formatter.build_taste_status_message(snapshot),
             reply_markup=self.telegram_formatter.build_taste_status_reply_markup(),
         )
-        return TelegramWebhookResult(
+        return TelegramUpdateResult(
             action="taste_status_sent",
             detail="Sent taste status to Telegram.",
             profile_version=snapshot.taste_profile.version if snapshot.taste_profile else None,
@@ -767,38 +656,16 @@ class TelegramService:
             reply_markup=reply_markup,
         )
 
-    def _require_webhook_secret(
-        self, callback_query: TelegramCallbackQuery, config: TelegramRuntimeConfig, *, action_label: str
-    ) -> TelegramWebhookResult | None:
-        """Block expensive/mutating taste callbacks unless a webhook secret is configured.
-
-        Without TELEGRAM_WEBHOOK_SECRET the webhook falls open (it cannot authenticate that a
-        request really came from Telegram), so chat-id authorization is the only barrier — and a
-        forged update from anyone who guesses the chat id could trigger an OpenAI-spending recompute
-        or rewrite the user's searches. Requiring a configured secret for those actions closes that.
-        """
-        if config.webhook_secret is not None:
-            return None
-        result = TelegramWebhookResult(
-            action="unauthorized",
-            detail=(
-                f"{action_label} requires TELEGRAM_WEBHOOK_SECRET to be configured so inbound "
-                "Telegram requests can be authenticated."
-            ),
-        )
-        self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
-        return result
-
     def _handle_taste_callback(
         self,
         callback_query: TelegramCallbackQuery,
         *,
         config: TelegramRuntimeConfig,
         schedule_background: Callable[[Callable[[], None]], None] | None = None,
-    ) -> TelegramWebhookResult:
+    ) -> TelegramUpdateResult:
         chat_id = self._message_chat_id(callback_query.message)
         if not self._is_authorized_chat(chat_id, config):
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="unauthorized",
                 detail="Telegram chat is not authorized for taste controls.",
             )
@@ -806,20 +673,17 @@ class TelegramService:
             return result
         parsed = self.telegram_formatter.parse_taste_callback_data(callback_query.data or "")
         if parsed is None:
-            result = TelegramWebhookResult(action="invalid_callback", detail="Telegram taste callback was not recognized.")
+            result = TelegramUpdateResult(action="invalid_callback", detail="Telegram taste callback was not recognized.")
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
 
         if parsed.action == "recompute":
-            guard = self._require_webhook_secret(callback_query, config, action_label="Taste recompute")
-            if guard is not None:
-                return guard
             claim = self.taste.claim_recompute(source="telegram")
             if not claim.claimed or claim.job_id is None:
                 text = self.telegram_formatter.build_taste_recompute_already_running_message(
                     started_at=claim.running_started_at,
                 )
-                result = TelegramWebhookResult(
+                result = TelegramUpdateResult(
                     action="taste_recompute_already_running",
                     detail=text,
                     recompute_job_id=claim.running_job_id,
@@ -838,7 +702,7 @@ class TelegramService:
                 task()
             else:
                 schedule_background(task)
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="taste_recompute_started",
                 detail=text,
                 recompute_job_id=claim.job_id,
@@ -848,7 +712,7 @@ class TelegramService:
 
         if parsed.action == "skip_drafts":
             text = "Skipped drafted search changes. Run /taste whenever you want to revisit them."
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="taste_drafts_skipped",
                 detail=text,
                 profile_version=parsed.profile_version,
@@ -862,16 +726,13 @@ class TelegramService:
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
 
-        guard = self._require_webhook_secret(callback_query, config, action_label="Applying search drafts")
-        if guard is not None:
-            return guard
         if self._apply_search_drafts is None:
-            result = TelegramWebhookResult(action="invalid_callback", detail="Search draft application is not configured.")
+            result = TelegramUpdateResult(action="invalid_callback", detail="Search draft application is not configured.")
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
         apply_result = self._apply_search_drafts(parsed.profile_version)
         text = self.telegram_formatter.build_search_draft_apply_message(apply_result)
-        result = TelegramWebhookResult(
+        result = TelegramUpdateResult(
             action="taste_drafts_applied",
             detail=text,
             profile_version=apply_result.profile_version,
@@ -888,15 +749,15 @@ class TelegramService:
 
     def _handle_reply_comment(
         self, message: TelegramMessage, comment: str, config: TelegramRuntimeConfig
-    ) -> TelegramWebhookResult:
+    ) -> TelegramUpdateResult:
         if not self._is_authorized_chat(self._message_chat_id(message), config):
-            return TelegramWebhookResult(
+            return TelegramUpdateResult(
                 action="unauthorized",
                 detail="Telegram chat is not authorized to comment on alerts.",
             )
         message_id = message.reply_to_message.message_id if message.reply_to_message else None
         if message_id is None:
-            return TelegramWebhookResult(
+            return TelegramUpdateResult(
                 action="ignored",
                 detail="Reply comment did not reference an alert message.",
             )
@@ -908,13 +769,13 @@ class TelegramService:
                 .limit(1)
             )
             if delivery is None:
-                return TelegramWebhookResult(
+                return TelegramUpdateResult(
                     action="ignored",
                     detail="Reply comment did not match any known alert delivery.",
                 )
             candidate_model = session.get(Candidate, delivery.candidate_id)
             if candidate_model is None:
-                return TelegramWebhookResult(
+                return TelegramUpdateResult(
                     action="ignored",
                     detail="Candidate for this delivery no longer exists.",
                 )
@@ -928,7 +789,7 @@ class TelegramService:
                 verdict=cast(Literal["like", "dislike"], existing_feedback),
                 comment=comment,
             )
-            return TelegramWebhookResult(
+            return TelegramUpdateResult(
                 action="feedback_recorded",
                 detail=f"Saved comment for {existing_feedback} candidate.",
                 candidate_id=candidate_id,
@@ -940,18 +801,42 @@ class TelegramService:
             candidate_id,
             comment=comment,
         )
-        return TelegramWebhookResult(
+        return TelegramUpdateResult(
             action="feedback_recorded",
             detail="Saved note-only candidate feedback.",
             candidate_id=candidate_id,
             learning_snapshot_id=snapshot.id if snapshot is not None else None,
         )
 
-    def handle_webhook(
+    def poll_updates(self, *, offset: int, timeout_seconds: int) -> int | None:
+        """Fetch and handle one long-poll batch of bot updates.
+
+        Returns the next offset, or ``None`` without calling Telegram while no bot token is
+        configured.
+        """
+        config = _telegram_config()
+        if not is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here"):
+            return None
+        self._apply_bot_token(config)
+        if self._polling_bot_token != config.bot_token:
+            self.telegram_client.delete_webhook()
+            self._polling_bot_token = config.bot_token
+        for raw in self.telegram_client.get_updates(offset=offset, timeout_seconds=timeout_seconds):
+            offset = int(raw["update_id"]) + 1
+            try:
+                self.handle_update(
+                    TelegramUpdate.model_validate(raw),
+                    schedule_background=lambda task: threading.Thread(target=task, daemon=True).start(),
+                )
+            except Exception:
+                logger.exception("Telegram update %s could not be handled", raw.get("update_id"))
+        return offset
+
+    def handle_update(
         self,
         payload: TelegramUpdate,
         schedule_background: Callable[[Callable[[], None]], None] | None = None,
-    ) -> TelegramWebhookResult:
+    ) -> TelegramUpdateResult:
         config = _telegram_config()
         self._apply_bot_token(config)
         if payload.message and payload.message.text:
@@ -964,13 +849,13 @@ class TelegramService:
 
         callback_query = payload.callback_query
         if callback_query is None:
-            return TelegramWebhookResult(
+            return TelegramUpdateResult(
                 action="ignored",
                 detail="Telegram update did not contain a supported callback query.",
             )
 
         if not callback_query.data:
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="invalid_callback",
                 detail="Telegram callback query did not include callback data.",
             )
@@ -985,7 +870,7 @@ class TelegramService:
             )
 
         if not self._is_authorized_chat(self._message_chat_id(callback_query.message), config):
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="unauthorized",
                 detail="Telegram chat is not authorized to record alert feedback.",
             )
@@ -994,7 +879,7 @@ class TelegramService:
 
         parsed_callback = self.telegram_formatter.parse_feedback_callback_data(callback_query.data)
         if parsed_callback is None:
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="invalid_callback",
                 detail="Telegram callback payload was not recognized.",
             )
@@ -1004,7 +889,7 @@ class TelegramService:
         try:
             delivery_id = int(parsed_callback.delivery_id)
         except ValueError:
-            result = TelegramWebhookResult(
+            result = TelegramUpdateResult(
                 action="invalid_callback",
                 detail="Telegram callback delivery ID was not a valid integer.",
                 delivery_id=parsed_callback.delivery_id,
@@ -1015,9 +900,9 @@ class TelegramService:
 
         verdict = parsed_callback.verdict
 
-        def run() -> TelegramWebhookResult:
+        def run() -> TelegramUpdateResult:
             # Recording feedback downloads images and runs a VLM observation; keep that work
-            # out of the webhook request so Telegram gets a fast HTTP 200 and does not redeliver.
+            # off the polling thread so the next updates are not held up.
             result = self._record_feedback_for_delivery(delivery_id=delivery_id, verdict=verdict)
             self._update_feedback_message(callback_query, result)
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
@@ -1030,7 +915,7 @@ class TelegramService:
             run()
 
         schedule_background(background)
-        return TelegramWebhookResult(
+        return TelegramUpdateResult(
             action="feedback_queued",
             detail=f"Recording your {verdict} feedback…",
             delivery_id=str(delivery_id),
@@ -1039,12 +924,12 @@ class TelegramService:
 
     def _record_feedback_for_delivery(
         self, *, delivery_id: int, verdict: Literal["like", "dislike"]
-    ) -> TelegramWebhookResult:
+    ) -> TelegramUpdateResult:
         # Phase 1 — resolve the delivery to its candidate in a short read transaction.
         with session_scope() as session:
             delivery = session.get(AlertDeliveryState, delivery_id)
             if delivery is None:
-                return TelegramWebhookResult(
+                return TelegramUpdateResult(
                     action="invalid_callback",
                     detail="No alert delivery matched this Telegram callback.",
                     delivery_id=str(delivery_id),
@@ -1061,7 +946,7 @@ class TelegramService:
                 skip_if_unchanged=True,
             )
         except KeyError:
-            return TelegramWebhookResult(
+            return TelegramUpdateResult(
                 action="invalid_callback",
                 detail="The candidate linked to this Telegram delivery no longer exists.",
                 delivery_id=str(delivery_id),
@@ -1074,7 +959,7 @@ class TelegramService:
             if delivery is not None:
                 delivery.updated_at = datetime.now(UTC)
 
-        return TelegramWebhookResult(
+        return TelegramUpdateResult(
             action="feedback_recorded" if snapshot is not None else "feedback_unchanged",
             detail=(
                 f"Recorded Telegram {verdict} feedback and refreshed learning snapshots."

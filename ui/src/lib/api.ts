@@ -26,7 +26,6 @@ import type {
   TasteRecomputeResult,
   TasteSample,
   TasteSnapshot,
-  TelegramWebhookStatus,
   VintedBrandOption,
   VintedSizesResult,
   WardrobeZipImportResult,
@@ -40,8 +39,6 @@ type SettingsUpdatePayload = {
   vinted_refresh_token: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
-  telegram_webhook_url: string;
-  telegram_webhook_secret: string;
   judge_model_id: string | null;
   judge_fallback_model_id: string | null;
   learn_model_id: string | null;
@@ -370,12 +367,6 @@ export const api = {
   applyProfileSizesToAll: () => request<VintedSizesResult>('/api/searches/apply-profile-sizes', { method: 'POST' }),
   telegramPreview: () => request<{ preview: string }>('/api/telegram/test', { method: 'POST' }),
   sendTelegramTest: () => request<{ ok: boolean; message_id?: number; chat_id: string }>('/api/telegram/test/send', { method: 'POST' }),
-  getTelegramWebhookStatus: () => request<TelegramWebhookStatus>('/api/telegram/webhook'),
-  registerTelegramWebhook: (payload: { url?: string; drop_pending_updates?: boolean }) =>
-    request<TelegramWebhookStatus>('/api/telegram/webhook/register', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
   exportData: async (includeCache: boolean) => {
     const { blob, headers } = await requestBlob(`/api/data/export?include_cache=${includeCache ? 'true' : 'false'}`);
     // Trigger a browser save-as download via a temporary object URL.

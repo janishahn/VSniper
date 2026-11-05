@@ -20,7 +20,6 @@ function parsePositiveNumber(value: string, fallback: number): number {
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
-  const webhookQuery = useQuery({ queryKey: queryKeys.telegramWebhook, queryFn: api.getTelegramWebhookStatus });
   // `telegramPreview` is a POST, so it must be a mutation rather than a passive
   // query (a query would re-fire the side-effecting endpoint on focus/refetch).
   const previewMutation = useMutation({ mutationFn: api.telegramPreview });
@@ -32,8 +31,6 @@ export function SettingsPage() {
     vinted_refresh_token: '',
     telegram_bot_token: '',
     telegram_chat_id: '',
-    telegram_webhook_url: '',
-    telegram_webhook_secret: '',
     alert_threshold: 9,
     scan_interval_seconds: 1800,
   });
@@ -57,8 +54,6 @@ export function SettingsPage() {
       vinted_refresh_token: settingsQuery.data.vinted_refresh_token,
       telegram_bot_token: settingsQuery.data.telegram_bot_token,
       telegram_chat_id: settingsQuery.data.telegram_chat_id,
-      telegram_webhook_url: settingsQuery.data.telegram_webhook_url,
-      telegram_webhook_secret: settingsQuery.data.telegram_webhook_secret,
       alert_threshold: settingsQuery.data.alert_threshold,
       scan_interval_seconds: settingsQuery.data.scan_interval_seconds,
     });
@@ -72,14 +67,6 @@ export function SettingsPage() {
     previewMutation.mutate();
   }, []);
 
-  useEffect(() => {
-    if (!webhookQuery.data || formDirty.current || formRef.current.telegram_webhook_url) return;
-    setForm((current) => ({
-      ...current,
-      telegram_webhook_url: webhookQuery.data.configured_url ?? webhookQuery.data.effective_url ?? '',
-    }));
-  }, [webhookQuery.data]);
-
   const saveMutation = useMutation({
     mutationFn: api.saveSettings,
     onSuccess: (_result, submittedForm) => {
@@ -87,22 +74,6 @@ export function SettingsPage() {
         setFormDirty(false);
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.settings });
-    },
-  });
-
-  const registerWebhookMutation = useMutation({
-    mutationFn: async () => {
-      const saved = await api.saveSettings(formRef.current);
-      const status = await api.registerTelegramWebhook({
-        url: formRef.current.telegram_webhook_url || undefined,
-        drop_pending_updates: false,
-      });
-      return { saved, status };
-    },
-    onSuccess: () => {
-      setFormDirty(false);
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings });
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramWebhook });
     },
   });
 
@@ -115,7 +86,6 @@ export function SettingsPage() {
     onSuccess: () => {
       setFormDirty(false);
       queryClient.invalidateQueries({ queryKey: queryKeys.settings });
-      queryClient.invalidateQueries({ queryKey: queryKeys.telegramWebhook });
     },
   });
 
@@ -173,7 +143,7 @@ export function SettingsPage() {
     missing: '#f55',
   }[cookieValidation.status];
 
-  // Only the settings form is essential to render. Telegram preview/webhook are
+  // Only the settings form is essential to render. The Telegram preview is
   // supplementary — they must not block editing the config that fixes them.
   if (settingsQuery.isLoading) return <p>Loading settings…</p>;
   if (settingsQuery.isError || !settingsQuery.data) {
@@ -181,7 +151,6 @@ export function SettingsPage() {
   }
 
   const settings = settingsQuery.data;
-  const webhook = webhookQuery.data;
 
   const set = <K extends keyof SettingsFormState>(key: K, value: SettingsFormState[K]) => {
     setFormDirty(true);
@@ -312,25 +281,6 @@ export function SettingsPage() {
                 placeholder="523167654 or -100..."
               />
             </label>
-            <label>
-              Webhook URL
-              <input
-                value={form.telegram_webhook_url}
-                onChange={(e) => set('telegram_webhook_url', e.target.value)}
-                placeholder="https://your-public-host/api/telegram/webhook"
-              />
-            </label>
-            <label>
-              Webhook secret
-              <input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={form.telegram_webhook_secret}
-                onChange={(e) => set('telegram_webhook_secret', e.target.value)}
-                placeholder="A long random secret"
-              />
-            </label>
           </div>
           <div className="button-row" style={{ marginTop: '1rem' }}>
             <button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
@@ -342,48 +292,15 @@ export function SettingsPage() {
         </div>
 
         <div className="settings-group">
-          <div className="telegram-panel-header">
-            <div>
-              <h4>Telegram webhook</h4>
-              {webhook
-                ? <p><strong>{webhook.is_registered ? 'registered' : 'not registered'}</strong> — {webhook.detail}</p>
-                : <p className="muted">{webhookQuery.isError ? 'Webhook status unavailable.' : 'Loading webhook status…'}</p>}
-            </div>
-            <div className="button-row compact-actions">
-              <button onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.telegramWebhook })}>
-                Refresh status
-              </button>
-              <button
-                onClick={() => registerWebhookMutation.mutate()}
-                disabled={registerWebhookMutation.isPending || saveMutation.isPending || sendTestMutation.isPending}
-              >
-                {registerWebhookMutation.isPending ? 'Saving and registering…' : 'Save and register webhook'}
-              </button>
-              <button
-                onClick={() => sendTestMutation.mutate()}
-                disabled={sendTestMutation.isPending || saveMutation.isPending || registerWebhookMutation.isPending}
-              >
-                {sendTestMutation.isPending ? 'Sending…' : 'Save and send test notification'}
-              </button>
-            </div>
+          <div className="button-row">
+            <button
+              onClick={() => sendTestMutation.mutate()}
+              disabled={sendTestMutation.isPending || saveMutation.isPending}
+            >
+              {sendTestMutation.isPending ? 'Sending…' : 'Save and send test notification'}
+            </button>
           </div>
-          {webhook ? (
-            <div className="telegram-status-grid">
-              <div><span>Configured URL</span><strong>{webhook.configured_url ?? 'not set'}</strong></div>
-              <div><span>Live Telegram URL</span><strong>{webhook.effective_url ?? 'not registered'}</strong></div>
-              <div><span>URL match</span><strong>{webhook.matches_configured_url ? 'yes' : 'no'}</strong></div>
-              <div><span>Secret token</span><strong>{webhook.has_secret_token ? 'configured' : 'not set'}</strong></div>
-              <div><span>Pending updates</span><strong>{webhook.pending_update_count}</strong></div>
-              <div><span>Allowed updates</span><strong>{webhook.allowed_updates.length ? webhook.allowed_updates.join(', ') : 'Telegram default'}</strong></div>
-              <div><span>Last checked</span><strong>{formatBerlinDateTime(webhook.checked_at, 'not checked yet')}</strong></div>
-              <div><span>Last Telegram error</span><strong>{webhook.last_error_message ?? 'none reported'}</strong></div>
-            </div>
-          ) : (
-            <ErrorText error={webhookQuery.error} prefix="Webhook status failed to load" />
-          )}
-          <ErrorText error={registerWebhookMutation.error} prefix="Webhook registration failed" />
           <ErrorText error={sendTestMutation.error} prefix="Test notification failed" />
-          {registerWebhookMutation.isSuccess && <p className="muted">Webhook was saved locally and registered with Telegram.</p>}
           {sendTestMutation.isSuccess && <p className="muted">Test notification sent to Telegram chat {sendTestMutation.data.sent.chat_id}.</p>}
         </div>
 

@@ -17,31 +17,24 @@ def _discover_runtime_root() -> Path:
 
 class Settings(BaseSettings):
     app_env: str = Field(default="development", alias="APP_ENV")
+    # Scans Vinted and polls Telegram from this process. Turn off for a second local instance
+    # that shares the bot token with the deployed one.
+    run_worker: bool = Field(default=True, alias="RUN_WORKER")
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
     sqlite_path: Path = Field(default=Path("storage/sqlite/vsniper.db"), alias="SQLITE_PATH")
     vinted_region: str = Field(default="de", alias="VINTED_REGION")
     vinted_cookie: str = Field(default="put-your-vinted-cookie-here", alias="VINTED_COOKIE")
-    vinted_browser_webdriver_url: str = Field(
-        default="http://browser:4444/wd/hub",
-        alias="VINTED_BROWSER_WEBDRIVER_URL",
-    )
+    # Empty uses Playwright's own Chromium build; the image points this at Debian's chromium.
+    vinted_browser_executable: str = Field(default="", alias="VINTED_BROWSER_EXECUTABLE")
     vinted_browser_proxy_url: str = Field(default="", alias="VINTED_BROWSER_PROXY_URL")
     vinted_browser_timeout_seconds: int = Field(default=30, alias="VINTED_BROWSER_TIMEOUT_SECONDS")
     vinted_browser_profile_dir: Path = Field(
-        default=Path("/app/browser-profile"),
+        default=Path("storage/browser-profile"),
         alias="VINTED_BROWSER_PROFILE_DIR",
     )
     telegram_bot_token: str = Field(default="put-your-telegram-bot-token-here", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="put-your-telegram-chat-id-here", alias="TELEGRAM_CHAT_ID")
-    telegram_webhook_url: str = Field(
-        default="put-your-telegram-webhook-url-here",
-        alias="TELEGRAM_WEBHOOK_URL",
-    )
-    telegram_webhook_secret: str = Field(
-        default="put-your-telegram-webhook-secret-here",
-        alias="TELEGRAM_WEBHOOK_SECRET",
-    )
     ai_judge_provider: str = Field(default="local", alias="AI_JUDGE_PROVIDER")
     ai_judge_model: str = Field(default="gpt-5.4-mini", alias="AI_JUDGE_MODEL")
     local_judge_model: str = Field(default="gemma4-12b-quality", alias="LOCAL_JUDGE_MODEL")

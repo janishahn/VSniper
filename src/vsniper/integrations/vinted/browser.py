@@ -1,20 +1,29 @@
 from __future__ import annotations
 
-import json
 import logging
-import threading
 import time
-from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from urllib.parse import unquote, urlparse
 
-from selenium import webdriver
-from selenium.common.exceptions import InvalidSessionIdException, TimeoutException, WebDriverException
-from selenium.webdriver.chrome.options import Options
+from playwright.sync_api import BrowserContext, Page, Playwright, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 
 from vsniper.core.config import Settings
 
 
 _logger = logging.getLogger(__name__)
+
+# Cloudflare interstitials and DataDome's captcha iframe. Normal Vinted pages also load
+# DataDome's tag script, so "datadome" alone is not a challenge marker.
+_CHALLENGE_MARKERS = (
+    "just a moment",
+    "cf-chl-",
+    "challenge-platform",
+    "_cf_chl_opt",
+    "cf-turnstile",
+    "captcha-delivery.com",
+)
 
 
 class BrowserListingError(RuntimeError):
@@ -36,209 +45,139 @@ class BrowserListingUnavailableError(BrowserListingError):
 class VintedBrowserClient:
     """Own one persistent visible Chromium session for one-off listing imports.
 
-    The browser lives in the private Selenium sidecar. Its profile is persisted by
-    Docker, and the same live session is exposed through noVNC so an operator can
-    complete a Cloudflare challenge without copying credentials into another browser.
+    Chromium runs on the container's virtual display with a persistent profile, so a
+    challenge solved once through the noVNC viewer keeps its clearance cookies across
+    imports and restarts. Playwright's sync API is bound to the thread that started it,
+    so all browser work runs on one dedicated thread.
     """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._driver: webdriver.Remote | None = None
-        self._lock = threading.Lock()
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vinted-browser")
+        self._playwright: Playwright | None = None
+        self._context: BrowserContext | None = None
 
     def close(self) -> None:
-        with self._lock:
-            driver, self._driver = self._driver, None
-            if driver is not None:
-                try:
-                    driver.quit()
-                except WebDriverException:
-                    _logger.debug("Vinted browser session was already closed.", exc_info=True)
+        self._executor.submit(self._discard_context).result()
+        self._executor.shutdown(wait=True)
 
     def fetch_html(self, url: str, *, cookie_header: str) -> str:
-        with self._lock:
-            for attempt in range(2):
-                try:
-                    driver = self._driver_or_create()
-                    self._sync_vinted_cookies(driver, cookie_header)
-                    driver.get(url)
-                    html = self._wait_for_listing_or_challenge(driver)
-                    if self._looks_like_challenge(driver.title, html):
-                        raise BrowserListingChallengeError(
-                            "Vinted requires browser verification. Open the Vinted browser, "
-                            "complete the challenge, then retry the import."
-                        )
-                    return html
-                except BrowserListingChallengeError:
-                    raise
-                except (InvalidSessionIdException, WebDriverException) as exc:
-                    self._discard_driver()
-                    if attempt == 0:
-                        continue
-                    raise BrowserListingUnavailableError(
-                        "The Vinted listing browser is unavailable. Check the browser service "
-                        "and, if configured, the proxy, then retry."
-                    ) from exc
+        return self._executor.submit(self._fetch_html, url, cookie_header).result()
 
+    def _fetch_html(self, url: str, cookie_header: str) -> str:
+        for attempt in range(2):
+            try:
+                context = self._context_or_create()
+                self._add_missing_vinted_cookies(context, cookie_header)
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(url, wait_until="domcontentloaded")
+                html = self._wait_for_listing_or_challenge(page)
+                if self._looks_like_challenge(page.title(), html):
+                    raise BrowserListingChallengeError(
+                        "Vinted requires browser verification. Open the Vinted browser, "
+                        "complete the challenge, then retry the import."
+                    )
+                return html
+            except PlaywrightError as exc:
+                self._discard_context()
+                if attempt == 0:
+                    continue
+                raise BrowserListingUnavailableError(
+                    "The Vinted listing browser is unavailable. Check the browser display and, "
+                    "if configured, the proxy, then retry."
+                ) from exc
         raise BrowserListingUnavailableError("The Vinted listing browser is unavailable.")
 
-    def _driver_or_create(self) -> webdriver.Remote:
-        if self._driver is not None:
-            return self._driver
-
-        options = Options()
-        options.add_argument("--window-size=1440,1000")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--user-data-dir=/home/seluser/.config/chromium")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
-        self._configure_proxy(options)
-
+    def _context_or_create(self) -> BrowserContext:
+        if self._context is not None:
+            return self._context
+        proxy = self._proxy_settings()
+        profile_dir = self.settings.resolve_path(self.settings.vinted_browser_profile_dir)
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        self._playwright = sync_playwright().start()
         try:
-            driver = webdriver.Remote(
-                command_executor=self.settings.vinted_browser_webdriver_url,
-                options=options,
+            context = self._playwright.chromium.launch_persistent_context(
+                str(profile_dir),
+                executable_path=self.settings.vinted_browser_executable or None,
+                headless=False,
+                no_viewport=True,
+                args=["--disable-blink-features=AutomationControlled", "--window-size=1440,1000"],
+                ignore_default_args=["--enable-automation"],
+                proxy=proxy,  # type: ignore[arg-type]
+                timeout=self.settings.vinted_browser_timeout_seconds * 1000,
             )
-            driver.set_page_load_timeout(self.settings.vinted_browser_timeout_seconds)
-        except WebDriverException as exc:
+        except PlaywrightError as exc:
+            self._discard_context()
             raise BrowserListingUnavailableError(
-                "The Vinted listing browser could not start. Check its service and, if configured, "
-                "the proxy."
+                "The Vinted listing browser could not start. Check the browser display and, "
+                "if configured, the proxy."
             ) from exc
+        context.set_default_timeout(self.settings.vinted_browser_timeout_seconds * 1000)
+        self._context = context
+        return context
 
-        self._driver = driver
-        return driver
-
-    def _configure_proxy(self, options: Options) -> None:
+    def _proxy_settings(self) -> dict[str, str] | None:
         proxy_url = self.settings.vinted_browser_proxy_url.strip()
         if not proxy_url:
-            return
-
+            return None
         parsed = urlparse(proxy_url)
         if parsed.scheme not in {"http", "https", "socks5"} or not parsed.hostname or parsed.port is None:
             raise BrowserListingUnconfiguredError(
                 "VINTED_BROWSER_PROXY_URL must be an http, https, or socks5 URL including a port."
             )
-
-        proxy_server = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
-        if parsed.username is None and parsed.password is None:
-            options.add_argument(f"--proxy-server={proxy_server}")
-            return
-        if parsed.username is None or parsed.password is None:
+        if (parsed.username is None) != (parsed.password is None):
             raise BrowserListingUnconfiguredError(
                 "VINTED_BROWSER_PROXY_URL must include both a username and password, or neither."
             )
-        if parsed.scheme == "socks5":
+        if parsed.scheme == "socks5" and parsed.username is not None:
             raise BrowserListingUnconfiguredError(
                 "Authenticated SOCKS5 proxies are not supported by Chromium; use an authenticated HTTP proxy."
             )
-
-        extension_path = self._write_proxy_auth_extension(
-            scheme=parsed.scheme,
-            host=parsed.hostname,
-            port=parsed.port,
-            username=unquote(parsed.username),
-            password=unquote(parsed.password),
-        )
-        options.add_argument(f"--load-extension={extension_path}")
-
-    def _write_proxy_auth_extension(
-        self,
-        *,
-        scheme: str,
-        host: str,
-        port: int,
-        username: str,
-        password: str,
-    ) -> str:
-        manifest = {
-            "manifest_version": 3,
-            "name": "VSniper proxy configuration",
-            "version": "1.0.0",
-            "permissions": ["proxy", "storage", "webRequest", "webRequestAuthProvider"],
-            "host_permissions": ["<all_urls>"],
-            "background": {"service_worker": "background.js"},
-        }
-        background = f"""
-const config = {{
-  mode: "fixed_servers",
-  rules: {{
-    singleProxy: {{
-      scheme: {json.dumps(scheme)},
-      host: {json.dumps(host)},
-      port: {port}
-    }},
-    bypassList: ["localhost", "127.0.0.1"]
-  }}
-}};
-chrome.proxy.settings.set({{value: config, scope: "regular"}});
-chrome.webRequest.onAuthRequired.addListener(
-  (_details, callback) => callback({{
-    authCredentials: {{
-      username: {json.dumps(username)},
-      password: {json.dumps(password)}
-    }}
-  }}),
-  {{urls: ["<all_urls>"]}},
-  ["asyncBlocking"]
-);
-"""
-        host_root = Path(self.settings.vinted_browser_profile_dir)
-        extension_dir = host_root / "proxy-extension"
-        extension_dir.mkdir(parents=True, exist_ok=True)
-        (extension_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        (extension_dir / "background.js").write_text(background, encoding="utf-8")
-        return "/home/seluser/.config/chromium/proxy-extension"
+        proxy = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+        if parsed.username is not None and parsed.password is not None:
+            proxy["username"] = unquote(parsed.username)
+            proxy["password"] = unquote(parsed.password)
+        return proxy
 
     @staticmethod
-    def _sync_vinted_cookies(driver: webdriver.Remote, cookie_header: str) -> None:
-        cookies = []
+    def _add_missing_vinted_cookies(context: BrowserContext, cookie_header: str) -> None:
+        """Seed the profile from the configured cookie without overwriting what it already holds.
+
+        The profile's own cookies are newer: they include any clearance solved in the browser.
+        """
+        existing = {cookie.get("name") for cookie in context.cookies("https://www.vinted.de")}
+        cookies: list[Any] = []
         for part in cookie_header.split(";"):
             name, separator, value = part.strip().partition("=")
-            if separator and name and value:
-                cookies.append(
-                    {
-                        "name": name,
-                        "value": value,
-                        "domain": ".vinted.de",
-                        "path": "/",
-                        "secure": True,
-                    }
-                )
+            if separator and name and value and name not in existing:
+                cookies.append({"name": name, "value": value, "domain": ".vinted.de", "path": "/", "secure": True})
         if cookies:
-            driver.execute_cdp_cmd("Network.setCookies", {"cookies": cookies})
+            context.add_cookies(cookies)
 
-    def _wait_for_listing_or_challenge(self, driver: webdriver.Remote) -> str:
-        timeout = max(1, self.settings.vinted_browser_timeout_seconds)
-        deadline = time.monotonic() + timeout
-        html = driver.page_source
-        while time.monotonic() < deadline:
-            html = driver.page_source
-            if "property=\"og:title\"" in html or "property='og:title'" in html:
+    def _wait_for_listing_or_challenge(self, page: Page) -> str:
+        deadline = time.monotonic() + max(1, self.settings.vinted_browser_timeout_seconds)
+        while True:
+            html = page.content()
+            if 'property="og:title"' in html or "property='og:title'" in html:
                 return html
-            if self._looks_like_challenge(driver.title, html):
+            if self._looks_like_challenge(page.title(), html):
                 return html
-            time.sleep(0.5)
-        raise TimeoutException("Timed out waiting for Vinted listing metadata.")
+            if time.monotonic() >= deadline:
+                raise BrowserListingUnavailableError("Timed out waiting for Vinted listing metadata.")
+            page.wait_for_timeout(500)
 
     @staticmethod
     def _looks_like_challenge(title: str, html: str) -> bool:
         sample = f"{title}\n{html[:50_000]}".lower()
-        return any(
-            marker in sample
-            for marker in (
-                "just a moment",
-                "cf-chl-",
-                "challenge-platform",
-                "_cf_chl_opt",
-                "cf-turnstile",
-            )
-        )
+        return any(marker in sample for marker in _CHALLENGE_MARKERS)
 
-    def _discard_driver(self) -> None:
-        driver, self._driver = self._driver, None
-        if driver is not None:
-            try:
-                driver.quit()
-            except WebDriverException:
-                pass
+    def _discard_context(self) -> None:
+        context, self._context = self._context, None
+        playwright, self._playwright = self._playwright, None
+        try:
+            if context is not None:
+                context.close()
+        except PlaywrightError:
+            _logger.debug("Vinted browser context was already closed.", exc_info=True)
+        if playwright is not None:
+            playwright.stop()

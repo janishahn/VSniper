@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from selenium.webdriver.chrome.options import Options
 
 from vsniper.integrations.vinted.browser import (
     BrowserListingChallengeError,
@@ -12,109 +12,107 @@ from vsniper.integrations.vinted.browser import (
 )
 
 
-def _settings(
-    *,
-    proxy_url: str = "http://proxy.example:8080",
-    profile_dir: str = "/tmp/vsniper-browser-test",
-) -> SimpleNamespace:
+def _settings(*, proxy_url: str = "") -> SimpleNamespace:
     return SimpleNamespace(
         vinted_browser_proxy_url=proxy_url,
-        vinted_browser_webdriver_url="http://browser:4444/wd/hub",
         vinted_browser_timeout_seconds=1,
-        vinted_browser_profile_dir=profile_dir,
+        vinted_browser_profile_dir=Path("/tmp/vsniper-browser-test"),
+        vinted_browser_executable="",
     )
 
 
-class _FakeDriver:
+class _FakePage:
     def __init__(self, *, title: str, html: str) -> None:
-        self.title = title
-        self.page_source = html
+        self._title = title
+        self._html = html
         self.visited: list[str] = []
-        self.cdp_calls: list[tuple[str, dict]] = []
 
-    def execute_cdp_cmd(self, command: str, params: dict) -> None:
-        self.cdp_calls.append((command, params))
-
-    def get(self, url: str) -> None:
+    def goto(self, url: str, **_: object) -> None:
         self.visited.append(url)
 
+    def content(self) -> str:
+        return self._html
 
-def test_browser_fetch_attempts_listing_without_proxy(monkeypatch) -> None:
+    def title(self) -> str:
+        return self._title
+
+    def wait_for_timeout(self, _ms: int) -> None:
+        pass
+
+
+class _FakeContext:
+    def __init__(self, page: _FakePage, *, cookies: list[dict] | None = None) -> None:
+        self.pages = [page]
+        self._cookies = cookies or []
+        self.added: list[dict] = []
+
+    def cookies(self, _url: str) -> list[dict]:
+        return self._cookies
+
+    def add_cookies(self, cookies: list[dict]) -> None:
+        self.added.extend(cookies)
+
+
+def _client(monkeypatch, context: _FakeContext, **settings: str) -> VintedBrowserClient:
+    client = VintedBrowserClient(_settings(**settings))  # type: ignore[arg-type]
+    monkeypatch.setattr(client, "_context_or_create", lambda: context)
+    return client
+
+
+def test_browser_fetch_returns_listing_html(monkeypatch) -> None:
     html = '<meta property="og:title" content="Wide cargos | Vinted">'
-    driver = _FakeDriver(title="Wide cargos | Vinted", html=html)
-    client = VintedBrowserClient(_settings(proxy_url=""))
-    monkeypatch.setattr(client, "_driver_or_create", lambda: driver)
+    page = _FakePage(title="Wide cargos | Vinted", html=html)
+    client = _client(monkeypatch, _FakeContext(page))
 
-    result = client.fetch_html("https://www.vinted.de/items/123-item", cookie_header="")
-
-    assert result == html
-    assert driver.visited == ["https://www.vinted.de/items/123-item"]
+    assert client.fetch_html("https://www.vinted.de/items/123-item", cookie_header="") == html
+    assert page.visited == ["https://www.vinted.de/items/123-item"]
 
 
-def test_empty_proxy_configuration_adds_no_chromium_proxy_argument() -> None:
-    client = VintedBrowserClient(_settings(proxy_url=""))
-    options = Options()
+def test_browser_fetch_keeps_cookies_the_profile_already_has(monkeypatch) -> None:
+    page = _FakePage(title="Wide cargos | Vinted", html='<meta property="og:title" content="x">')
+    context = _FakeContext(page, cookies=[{"name": "datadome", "value": "solved-in-browser"}])
+    client = _client(monkeypatch, context)
 
-    client._configure_proxy(options)
-
-    assert all(not argument.startswith("--proxy-server=") for argument in options.arguments)
-
-
-def test_invalid_non_empty_proxy_configuration_is_rejected() -> None:
-    client = VintedBrowserClient(_settings(proxy_url="proxy.example"))
-
-    with pytest.raises(BrowserListingUnconfiguredError, match="http, https, or socks5"):
-        client._configure_proxy(Options())
-
-
-def test_browser_fetch_syncs_cookie_and_returns_listing_html(monkeypatch) -> None:
-    html = '<meta property="og:title" content="Wide cargos | Vinted">'
-    driver = _FakeDriver(title="Wide cargos | Vinted", html=html)
-    client = VintedBrowserClient(_settings())
-    monkeypatch.setattr(client, "_driver_or_create", lambda: driver)
-
-    result = client.fetch_html(
+    client.fetch_html(
         "https://www.vinted.de/items/123-item",
-        cookie_header="access_token_web=token; datadome=clearance",
+        cookie_header="access_token_web=token; datadome=stale-from-env",
     )
 
-    assert result == html
-    assert driver.visited == ["https://www.vinted.de/items/123-item"]
-    assert driver.cdp_calls[0][0] == "Network.setCookies"
-    assert [cookie["name"] for cookie in driver.cdp_calls[0][1]["cookies"]] == [
-        "access_token_web",
-        "datadome",
-    ]
+    assert [(cookie["name"], cookie["value"]) for cookie in context.added] == [("access_token_web", "token")]
 
 
-def test_browser_fetch_leaves_challenge_session_open(monkeypatch) -> None:
-    driver = _FakeDriver(
-        title="Just a moment...",
-        html="<html><script>window._cf_chl_opt = {}</script></html>",
-    )
-    client = VintedBrowserClient(_settings())
-    client._driver = driver  # type: ignore[assignment]
-    monkeypatch.setattr(client, "_driver_or_create", lambda: driver)
+@pytest.mark.parametrize(
+    ("title", "html"),
+    [
+        ("Just a moment...", "<html><script>window._cf_chl_opt = {}</script></html>"),
+        ("vinted.de", '<iframe src="https://geo.captcha-delivery.com/captcha/?initialCid=x"></iframe>'),
+    ],
+)
+def test_browser_fetch_reports_cloudflare_and_datadome_challenges(monkeypatch, title: str, html: str) -> None:
+    client = _client(monkeypatch, _FakeContext(_FakePage(title=title, html=html)))
 
     with pytest.raises(BrowserListingChallengeError, match="Open the Vinted browser"):
         client.fetch_html("https://www.vinted.de/items/123-item", cookie_header="")
 
-    assert client._driver is driver
+
+def test_empty_proxy_configuration_uses_no_proxy() -> None:
+    assert VintedBrowserClient(_settings())._proxy_settings() is None  # type: ignore[arg-type]
 
 
-def test_authenticated_proxy_secret_is_written_to_profile_not_capabilities(tmp_path) -> None:
-    client = VintedBrowserClient(
-        _settings(
-            proxy_url="http://proxy-user:proxy-password@proxy.example:8080",
-            profile_dir=str(tmp_path),
-        )
+def test_invalid_proxy_configuration_is_rejected() -> None:
+    client = VintedBrowserClient(_settings(proxy_url="proxy.example"))  # type: ignore[arg-type]
+
+    with pytest.raises(BrowserListingUnconfiguredError, match="http, https, or socks5"):
+        client._proxy_settings()
+
+
+def test_authenticated_proxy_credentials_are_passed_separately() -> None:
+    client = VintedBrowserClient(  # type: ignore[arg-type]
+        _settings(proxy_url="http://proxy-user:p%40ss@proxy.example:8080")
     )
-    options = Options()
 
-    client._configure_proxy(options)
-
-    assert all("proxy-user" not in argument and "proxy-password" not in argument for argument in options.arguments)
-    assert "--load-extension=/home/seluser/.config/chromium/proxy-extension" in options.arguments
-    background = (tmp_path / "proxy-extension" / "background.js").read_text()
-    assert "proxy-user" in background
-    assert "proxy-password" in background
+    assert client._proxy_settings() == {
+        "server": "http://proxy.example:8080",
+        "username": "proxy-user",
+        "password": "p@ss",
+    }

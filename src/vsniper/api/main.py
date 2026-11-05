@@ -1,19 +1,23 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from time import perf_counter
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
 from vsniper.api.routes import ai_models, candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram
 from vsniper.core.config import get_settings
 from vsniper.core.database import configure_app_logging
 from vsniper.core.state import get_state
+from vsniper.worker import scheduler
 
 configure_app_logging()
 logger = logging.getLogger("uvicorn.error")
+FRONTEND_DIST_DIR = Path(__file__).resolve().parents[3] / "ui" / "dist"
 
 
 @asynccontextmanager
@@ -22,10 +26,18 @@ async def lifespan(_app: FastAPI):
     logger.info("app state initialization started")
     get_state()
     logger.info("app state initialization finished in %.1fs", perf_counter() - started)
-    yield
+    if not get_settings().run_worker:
+        logger.info("background worker disabled by RUN_WORKER=false")
+        yield
+        return
+    threads = scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop(threads)
 
 
-app = FastAPI(title="vsniper API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="vsniper", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
@@ -127,6 +139,24 @@ async def log_api_requests(request: Request, call_next):
     return response
 
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {"service": "vsniper-api", "status": "ok"}
+class _ImmutableStaticFiles(StaticFiles):
+    """Serve Vite's content-hashed assets with a long-lived cache."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[no-untyped-def]
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+app.mount("/assets", _ImmutableStaticFiles(directory=FRONTEND_DIST_DIR / "assets", check_dir=False), name="assets")
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def frontend(path: str) -> Response:
+    if path == "api" or path.startswith("api/"):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    index = FRONTEND_DIST_DIR / "index.html"
+    if not index.exists():
+        return Response("UI build not found. Run `npm run build` in ui/.", media_type="text/plain", status_code=503)
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})

@@ -1501,10 +1501,6 @@ class SearchService:
                 model.telegram_bot_token = payload.telegram_bot_token.strip()
             if payload.telegram_chat_id is not None:
                 model.telegram_chat_id = payload.telegram_chat_id.strip()
-            if payload.telegram_webhook_url is not None:
-                model.telegram_webhook_url = payload.telegram_webhook_url.strip()
-            if payload.telegram_webhook_secret is not None:
-                model.telegram_webhook_secret = payload.telegram_webhook_secret.strip()
             _, telegram_configured, _ = integration_configuration(
                 db_cookie=model.vinted_cookie,
                 telegram_bot_token=model.telegram_bot_token,

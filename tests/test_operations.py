@@ -265,8 +265,9 @@ def test_record_heartbeat_creates_and_updates(tmp_path):
 # --- Operations snapshot tests ---
 
 
-def test_operations_snapshot_returns_all_sections(tmp_path):
+def test_operations_snapshot_returns_all_sections(tmp_path, monkeypatch):
     _, factory, fake_session_scope = _setup(tmp_path)
+    monkeypatch.setattr("vsniper.services.maintenance_service.session_scope", fake_session_scope)
     import vsniper.services.operations_service as ops
     original = ops.session_scope
     ops.session_scope = fake_session_scope
@@ -290,8 +291,9 @@ def test_operations_snapshot_returns_all_sections(tmp_path):
         ops.session_scope = original
 
 
-def test_operations_snapshot_includes_failed_deliveries(tmp_path):
+def test_operations_snapshot_includes_failed_deliveries(tmp_path, monkeypatch):
     _, factory, fake_session_scope = _setup(tmp_path)
+    monkeypatch.setattr("vsniper.services.maintenance_service.session_scope", fake_session_scope)
     import vsniper.services.operations_service as ops
     original = ops.session_scope
     ops.session_scope = fake_session_scope

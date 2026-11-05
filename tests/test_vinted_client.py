@@ -12,6 +12,7 @@ import pytest
 from vsniper.domain.contracts import SearchFilter, SearchRecord
 from vsniper.integrations.vinted.browser import BrowserListingChallengeError
 from vsniper.integrations.vinted.client import (
+    VINTED_BROWSER_VIEWER_PATH,
     VintedBrowserActionError,
     VintedClient,
     VintedListingUrlError,
@@ -623,7 +624,7 @@ def test_fetch_item_by_url_maps_browser_challenge_to_actionable_error(monkeypatc
         )
 
     assert exc_info.value.code == 'vinted_browser_challenge'
-    assert exc_info.value.recovery_path == '/vinted-browser/?autoconnect=1&resize=scale'
+    assert exc_info.value.recovery_path == VINTED_BROWSER_VIEWER_PATH
 
 
 def test_fetch_item_by_url_rejects_non_item_urls() -> None:

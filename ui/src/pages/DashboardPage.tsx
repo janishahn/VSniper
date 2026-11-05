@@ -409,12 +409,6 @@ export function DashboardPage() {
   const statsQuery = useQuery({ queryKey: queryKeys.stats, queryFn: api.getDashboardStats, refetchInterval: 30_000 });
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
   const tasteQuery = useQuery({ queryKey: queryKeys.taste, queryFn: api.getTaste });
-  const telegramConfigured = settingsQuery.data?.telegram_configured ?? false;
-  const webhookQuery = useQuery({
-    queryKey: queryKeys.telegramWebhook,
-    queryFn: api.getTelegramWebhookStatus,
-    enabled: telegramConfigured,
-  });
 
   if (statsQuery.isLoading || settingsQuery.isLoading) {
     return <p>Loading dashboard…</p>;
@@ -441,17 +435,6 @@ export function DashboardPage() {
     !!dirty &&
     recomputeStatus !== 'running' &&
     (dirty.new_or_changed_samples > 0 || dirty.manual_note_changed);
-
-  const webhook = webhookQuery.data;
-  const webhookPill = !telegramConfigured
-    ? null
-    : !webhook
-      ? { className: 'warning', text: 'webhook unknown' }
-      : webhook.is_registered && webhook.matches_configured_url
-        ? { className: 'healthy', text: 'webhook registered' }
-        : webhook.is_registered
-          ? { className: 'warning', text: 'webhook URL mismatch' }
-          : { className: 'missing', text: 'webhook not registered' };
 
   return (
     <section>
@@ -513,12 +496,6 @@ export function DashboardPage() {
                 {refreshExpiry ? formatCookieExpiry(refreshExpiry) : 'unknown'}
               </span>
             </li>
-            {webhookPill && (
-              <li>
-                <strong>Telegram webhook:</strong>{' '}
-                <span className={`pill ${webhookPill.className}`}>{webhookPill.text}</span>
-              </li>
-            )}
           </ul>
           <p className="muted">Preview scans stay local to the dashboard. The worker now uses a separate live scan path that can queue alert deliveries.</p>
         </div>

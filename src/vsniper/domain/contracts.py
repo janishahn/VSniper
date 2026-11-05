@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator  # HttpUrl kept for validated inputs only
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 MaintenanceMode = Literal["idle", "manual", "import"]
@@ -415,8 +415,6 @@ class SettingsSnapshot(BaseModel):
     vinted_refresh_token: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    telegram_webhook_url: str = ""
-    telegram_webhook_secret: str = ""
     vinted_configured: bool
     telegram_configured: bool
     ai_configured: bool
@@ -647,7 +645,7 @@ class TelegramUpdate(BaseModel):
     message: TelegramMessage | None = None
 
 
-class TelegramWebhookResult(BaseModel):
+class TelegramUpdateResult(BaseModel):
     ok: bool = True
     action: Literal[
         "ignored",
@@ -672,34 +670,12 @@ class TelegramWebhookResult(BaseModel):
     changed_searches: int | None = None
 
 
-class TelegramWebhookRegistrationPayload(BaseModel):
-    url: HttpUrl | None = None
-    drop_pending_updates: bool = False
-
-
-class TelegramWebhookStatus(BaseModel):
-    last_check_ok: bool
-    is_registered: bool
-    matches_configured_url: bool
-    configured_url: str | None = None
-    effective_url: str | None = None
-    has_secret_token: bool = False
-    pending_update_count: int = 0
-    allowed_updates: list[str] = Field(default_factory=list)
-    last_error_message: str | None = None
-    last_error_at: datetime | None = None
-    checked_at: datetime
-    detail: str
-
-
 class SettingsUpdate(BaseModel):
     vinted_region: str
     vinted_cookie: str | None = None
     vinted_refresh_token: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
-    telegram_webhook_url: str | None = None
-    telegram_webhook_secret: str | None = None
     judge_model_id: str | None = None
     judge_fallback_model_id: str | None = None
     learn_model_id: str | None = None

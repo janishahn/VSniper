@@ -168,8 +168,6 @@ class AppSettingsState(Base):
     vinted_refresh_token: Mapped[str] = mapped_column(Text, default="", nullable=False)
     telegram_bot_token: Mapped[str] = mapped_column(Text, default="", nullable=False)
     telegram_chat_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
-    telegram_webhook_url: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    telegram_webhook_secret: Mapped[str] = mapped_column(Text, default="", nullable=False)
     telegram_configured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_telegram_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     judge_model_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

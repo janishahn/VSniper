@@ -41,7 +41,6 @@ export const queryKeys = {
   vintedBrandSearch: (query: string) => ['vinted-brand-search', query] as const,
   aiModels: ['ai-models'] as const,
   telegramPreview: ['telegram-preview'] as const,
-  telegramWebhook: ['telegram-webhook'] as const,
   data: ['data'] as const,
   operations: ['operations'] as const,
   searchRuns: (params: { search_id?: string; status?: string }) =>

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import signal
 import socket
 import threading
 import time
@@ -30,7 +29,7 @@ logging.basicConfig(
 _logger = logging.getLogger(__name__)
 _search_failure_counts: dict[str, int] = {}
 _search_failure_lock = threading.Lock()
-_stop = False
+_stop = threading.Event()
 _cycle_count = 0
 
 _WORKER_OWNER = f"{socket.gethostname()}:{os.getpid()}"
@@ -43,6 +42,8 @@ _POLL_SECONDS = 30
 # Delivery/cookie/prune run on their own fixed cadence, decoupled from the scan interval — those
 # should stay responsive even when scans are spread across a 30+ minute window.
 _MAINTENANCE_TICK_SECONDS = 60
+_TELEGRAM_POLL_TIMEOUT_SECONDS = 25
+_TELEGRAM_RETRY_SECONDS = 30
 
 _rotation_index = 0
 _active_scan_threads: set[threading.Thread] = set()
@@ -84,8 +85,8 @@ def _run_one(search_id: str, search_name: str, interval: int) -> None:
 
 def cycle(interval: int) -> None:
     """Run a single full pass: scan every enabled search at once, then delivery/cookie/prune
-    maintenance. Used for `--once` (a one-shot manual/test run). The continuous loop (`main`
-    without `--once`) instead staggers scans across `interval` via `_dispatch_due_scans` so
+    maintenance. Used by the `scan-once` command. The continuous loop in the app process instead
+    staggers scans across `interval` via `_dispatch_due_scans` so
     requests spread out evenly instead of firing all at once."""
     with worker_activity("scan_searches") as active:
         if not active:
@@ -273,7 +274,7 @@ def _run_continuous_loop(interval_override: int | None) -> None:
     last_maintenance_at: float | None = None
     next_scan_dispatch_at: float | None = None
 
-    while not _stop:
+    while not _stop.is_set():
         interval = _resolve_interval(interval_override)
         now = time.monotonic()
 
@@ -307,35 +308,56 @@ def _run_continuous_loop(interval_override: int | None) -> None:
                 next_scan_dispatch_at += interval / len(enabled)
                 now = time.monotonic()
 
-        if _stop:
-            break
-        time.sleep(_POLL_SECONDS)
+        _stop.wait(_POLL_SECONDS)
+
+
+def _run_telegram_poller() -> None:
+    offset = 0
+    while not _stop.is_set():
+        try:
+            next_offset = get_state().telegram.poll_updates(
+                offset=offset, timeout_seconds=_TELEGRAM_POLL_TIMEOUT_SECONDS
+            )
+        except Exception:
+            _logger.warning("Telegram polling failed; retrying in %ds", _TELEGRAM_RETRY_SECONDS, exc_info=True)
+            _stop.wait(_TELEGRAM_RETRY_SECONDS)
+            continue
+        if next_offset is None:
+            # No bot token yet; it can be added on the Settings page at runtime.
+            _stop.wait(_TELEGRAM_RETRY_SECONDS)
+            continue
+        offset = next_offset
+
+
+def start() -> list[threading.Thread]:
+    """Start the scan loop and Telegram poller as daemon threads of the app process."""
+    _stop.clear()
+    threads = [
+        threading.Thread(target=_run_continuous_loop, args=(None,), name="scan-loop", daemon=True),
+        threading.Thread(target=_run_telegram_poller, name="telegram-poller", daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    return threads
+
+
+def stop(threads: list[threading.Thread]) -> None:
+    _stop.set()
+    for thread in threads:
+        thread.join(timeout=_TELEGRAM_POLL_TIMEOUT_SECONDS + 15)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="vsniper worker scheduler")
-    parser.add_argument("--once", action="store_true", help="Run a single worker cycle and exit")
+    """Run one full scan and maintenance pass; the continuous worker runs inside the app."""
+    parser = argparse.ArgumentParser(description="Run every enabled search once, then maintenance")
     parser.add_argument(
         "--interval",
         type=int,
         default=None,
-        help="Seconds between worker cycles (overrides the scan interval configured in Settings)",
+        help="Seconds used for run claims (defaults to the scan interval configured in Settings)",
     )
     args = parser.parse_args()
-
-    if args.once:
-        cycle(_resolve_interval(args.interval))
-        return
-
-    def _handle_stop(signum: int, frame: object) -> None:
-        global _stop
-        _logger.info("received signal %d, will stop after current cycle", signum)
-        _stop = True
-
-    signal.signal(signal.SIGTERM, _handle_stop)
-    signal.signal(signal.SIGINT, _handle_stop)
-
-    _run_continuous_loop(args.interval)
+    cycle(_resolve_interval(args.interval))
 
 
 if __name__ == "__main__":

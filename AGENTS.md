@@ -40,16 +40,6 @@ npm run build
 
 Start the local stack with `docker compose up --build` after copying `.env.example` to `.env`. The development stack is unauthenticated and must remain bound to localhost.
 
-## Production deployment
-
-- Coolify is https://coolify.jonas-klesen.de/; the app is https://vsniper.jonas-server.de/.
-- Resource UUID: `ny7hl8gp7n9f3excayygzj0l`, repository `jonas-klesen/VSniper`, branch `main`, compose file `docker-compose.coolify.yml`.
-- When deployment is authorized, push the intended commits, then use the Coolify MCP if connected or the Coolify API. A push alone does not deploy this resource.
-- API authentication uses `COOLIFY_API_KEY` from the operator's local `~/.bashrc`. Read it privately and send it only to the configured Coolify host; never print, log, or commit the key or credential-bearing configuration.
-- API base: `https://coolify.jonas-klesen.de/api/v1`. Start with `POST /deploy` and JSON `{"uuid":"ny7hl8gp7n9f3excayygzj0l","force":false}`; poll `GET /deployments/{deployment_uuid}` until finished and verify its `commit` matches the pushed revision.
-- Verify container health, public `/healthz`, dashboard/API authentication, worker heartbeats, and completed post-deployment search runs. For Vinted fixes, verify all six saved searches with the deployed client and inspect new errors. Keep a repeatable local report of the deployed revision and checks.
-- SSH inspection is available at `root@jonas-server.de` using the existing SSH key. See the deployment section in `README.md` for the full workflow.
-
 ## Architecture
 
 The FastAPI process and worker share `storage/sqlite/vsniper.db`. Both enter through `vsniper.core.state.get_state()`, whose `AppState` owns integration clients, database lifecycle, and four domain services:

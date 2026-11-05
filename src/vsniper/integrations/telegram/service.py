@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from vsniper.domain.contracts import (
     CandidateRecord,
@@ -18,6 +19,10 @@ TASTE_CALLBACK_PREFIX = "taste"
 
 
 _DESCRIPTION_MAX_CHARS = 300
+_LOCAL_TZ = ZoneInfo("Europe/Berlin")
+_DECISION_LABELS = {"alert": "Treffer", "review": "Knapp daneben", "discard": "Verworfen"}
+# Marks where the feedback badge starts, so a second vote replaces it instead of stacking.
+_FEEDBACK_MARKER = "\n\nDeine Bewertung:"
 
 
 class TelegramFormatter:
@@ -30,22 +35,22 @@ class TelegramFormatter:
         trace = candidate.score_trace
         parts = (
             [
-                f"🤔 Borderline: scored {trace.score_10}/100, just under the alert threshold of "
-                f"{round(trace.threshold * 100)}. Would you want listings like this?\n"
+                f"🤔 Knapp daneben: {trace.score_10}/100, knapp unter der Alarmschwelle von "
+                f"{round(trace.threshold * 100)}. Gefällt dir so etwas?\n"
             ]
             if kind == "borderline"
             else []
         )
         parts += [
             f"🧥 {candidate.title}",
-            f"Brand: {candidate.brand}  |  Size: {candidate.size}  |  Price: €{candidate.price_eur:.2f}",
+            f"Marke: {candidate.brand}  |  Größe: {candidate.size}  |  Preis: {candidate.price_eur:.2f} €",
         ]
         if description:
             parts.append(f"\n{description}")
         if kind != "borderline":
             parts += [
-                f"\nDecision: {trace.decision} ({trace.score_10}/100)",
-                f"Why: {trace.explanation or trace.summary}",
+                f"\nBewertung: {_DECISION_LABELS.get(trace.decision, trace.decision)} ({trace.score_10}/100)",
+                f"Warum: {trace.explanation or trace.summary}",
             ]
         parts.append(f"🔗 {candidate.url}")
         return "\n".join(parts)
@@ -55,11 +60,11 @@ class TelegramFormatter:
             "inline_keyboard": [
                 [
                     {
-                        "text": "👍 Like",
+                        "text": "👍 Gefällt mir",
                         "callback_data": self.build_feedback_callback_data(delivery_id=delivery_id, verdict="like"),
                     },
                     {
-                        "text": "👎 Dislike",
+                        "text": "👎 Gefällt mir nicht",
                         "callback_data": self.build_feedback_callback_data(delivery_id=delivery_id, verdict="dislike"),
                     },
                 ]
@@ -68,9 +73,9 @@ class TelegramFormatter:
 
     @staticmethod
     def build_feedback_applied_message(*, message_text: str, verdict: str) -> str:
-        base_text = message_text.split("\n\nFeedback:", maxsplit=1)[0].rstrip()
-        badge = "👍 Like" if verdict == "like" else "👎 Dislike"
-        return f"{base_text}\n\nFeedback: {badge}\n↩ Reply to add a note (feeds recompute)"
+        base_text = message_text.split(_FEEDBACK_MARKER, maxsplit=1)[0].rstrip()
+        badge = "👍 Gefällt mir" if verdict == "like" else "👎 Gefällt mir nicht"
+        return f"{base_text}{_FEEDBACK_MARKER} {badge}\n↩ Antworte auf diese Nachricht, um eine Notiz dazu zu hinterlassen."
 
     @staticmethod
     def build_feedback_callback_data(*, delivery_id: str, verdict: str) -> str:
@@ -120,7 +125,7 @@ class TelegramFormatter:
             "inline_keyboard": [
                 [
                     {
-                        "text": "🧠 Recompute taste",
+                        "text": "🧠 Geschmack neu berechnen",
                         "callback_data": self.build_taste_callback_data(action="recompute"),
                     }
                 ]
@@ -132,14 +137,14 @@ class TelegramFormatter:
             "inline_keyboard": [
                 [
                     {
-                        "text": "✅ Apply drafted searches",
+                        "text": "✅ Suchvorschläge übernehmen",
                         "callback_data": self.build_taste_callback_data(
                             action="apply_drafts",
                             profile_version=profile_version,
                         ),
                     },
                     {
-                        "text": "Not now",
+                        "text": "Jetzt nicht",
                         "callback_data": self.build_taste_callback_data(
                             action="skip_drafts",
                             profile_version=profile_version,
@@ -152,87 +157,91 @@ class TelegramFormatter:
     @staticmethod
     def _format_dt(value: datetime | None) -> str:
         if value is None:
-            return "never"
+            return "noch nie"
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
-        return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        return value.astimezone(_LOCAL_TZ).strftime("%d.%m.%Y, %H:%M Uhr")
 
     def build_taste_status_message(self, snapshot: TasteSnapshot) -> str:
         profile = snapshot.taste_profile
         dirty = snapshot.dirty_counts
         recompute = snapshot.recompute_state
         parts = [
-            "🧠 Taste status",
-            f"Samples: {len(snapshot.samples)} total · {dirty.new_or_changed_samples} changed",
+            "🧠 Dein Geschmack",
+            f"Beispiele: {len(snapshot.samples)} insgesamt · {dirty.new_or_changed_samples} neu seit der letzten Berechnung",
             (
-                "Changed evidence: "
-                f"{dirty.new_or_changed_positive_samples} positive · "
-                f"{dirty.new_or_changed_negative_samples} negative · "
-                f"manual note {'changed' if dirty.manual_note_changed else 'unchanged'}"
+                "Davon: "
+                f"{dirty.new_or_changed_positive_samples} positiv · "
+                f"{dirty.new_or_changed_negative_samples} negativ · "
+                f"Notiz {'geändert' if dirty.manual_note_changed else 'unverändert'}"
             ),
-            f"Last recompute: {self._format_dt(snapshot.last_recomputed_at)}",
+            f"Zuletzt berechnet: {self._format_dt(snapshot.last_recomputed_at)}",
         ]
         if profile is None:
-            parts.append("Active profile: none yet")
+            parts.append("Profil: noch keins")
         else:
             model_bits = [f"v{profile.version}"]
             if profile.model:
                 model_bits.append(profile.model)
-            parts.append(f"Active profile: {' · '.join(model_bits)}")
-            parts.append(f"Generated drafts: {len(profile.generated_searches)}")
+            parts.append(f"Profil: {' · '.join(model_bits)}")
+            parts.append(f"Suchvorschläge: {len(profile.generated_searches)}")
         if recompute.status == "running":
-            parts.append(f"Recompute: running since {self._format_dt(recompute.started_at)}")
+            parts.append(f"Berechnung läuft seit {self._format_dt(recompute.started_at)}")
         elif recompute.status == "failed" and recompute.error:
-            parts.append(f"Last recompute failed: {recompute.error[:160]}")
+            parts.append(f"Letzte Berechnung fehlgeschlagen: {recompute.error[:160]}")
         elif recompute.status == "succeeded":
             parts.append(
-                f"Last cost: ${recompute.last_cost_usd:.4f} "
-                f"({recompute.last_input_tokens} in / {recompute.last_output_tokens} out tokens)"
+                f"Letzte Kosten: ${recompute.last_cost_usd:.4f} "
+                f"({recompute.last_input_tokens} Tokens rein / {recompute.last_output_tokens} raus)"
             )
         return "\n".join(parts)
 
     @staticmethod
     def build_taste_recompute_started_message(*, started_at: datetime | None = None) -> str:
         return (
-            f"🧠 Taste recompute started at {TelegramFormatter._format_dt(started_at)}. "
-            "I’ll report back here when it finishes."
+            f"🧠 Geschmack wird neu berechnet (gestartet {TelegramFormatter._format_dt(started_at)}). "
+            "Ich melde mich hier, sobald es fertig ist."
         )
 
     @staticmethod
     def build_taste_recompute_already_running_message(*, started_at: datetime | None = None) -> str:
         return (
-            f"🧠 Taste recompute is already running since {TelegramFormatter._format_dt(started_at)}. "
-            "I’ll avoid starting a duplicate run."
+            f"🧠 Die Berechnung läuft schon seit {TelegramFormatter._format_dt(started_at)}. "
+            "Ich starte keine zweite."
         )
 
     def build_taste_recompute_success_message(self, result: TasteRecomputeResult) -> str:
         profile = result.snapshot.taste_profile
-        profile_text = f"v{profile.version}" if profile else "unknown version"
+        profile_text = f"v{profile.version}" if profile else "unbekannte Version"
         draft_count = len(profile.generated_searches) if profile else 0
         return "\n".join(
             [
-                "✅ Taste recompute finished",
-                f"Profile: {profile_text}",
-                f"Cost: ${result.cost_usd:.4f}",
-                f"Tokens: {result.input_tokens} in / {result.output_tokens} out",
-                f"Observation cache: {result.observation_cache.cached_observations} cached / {result.observation_cache.fresh_observations} fresh",
-                f"Generated search drafts: {draft_count}",
-                "Apply the drafted search changes?" if draft_count else "No generated drafts are available to apply.",
+                "✅ Geschmack neu berechnet",
+                f"Profil: {profile_text}",
+                f"Kosten: ${result.cost_usd:.4f}",
+                f"Tokens: {result.input_tokens} rein / {result.output_tokens} raus",
+                f"Bildbeschreibungen: {result.observation_cache.cached_observations} wiederverwendet / {result.observation_cache.fresh_observations} neu",
+                f"Suchvorschläge: {draft_count}",
+                "Suchvorschläge übernehmen?" if draft_count else "Es gibt keine Suchvorschläge zum Übernehmen.",
             ]
         )
 
     @staticmethod
     def build_taste_recompute_failed_message(error: str) -> str:
-        return f"❌ Taste recompute failed: {error[:800]}"
+        return f"❌ Neuberechnung fehlgeschlagen: {error[:800]}"
 
     @staticmethod
     def build_search_draft_apply_message(result: SearchDraftApplyResult) -> str:
         if result.stale:
-            return f"⚠️ {result.summary} Run /taste again to review the current profile."
+            return (
+                f"⚠️ Das Profil ist inzwischen bei v{result.profile_version}, dieser Knopf war für "
+                f"v{result.requested_profile_version}. Schick /taste, um das aktuelle Profil anzusehen."
+            )
+        if result.profile_version is None:
+            return "Es gibt noch kein Geschmacksprofil und damit keine Suchvorschläge."
         return "\n".join(
             [
-                "✅ Drafted search changes applied",
-                result.summary,
-                f"Changed: {result.applied_searches} · unchanged: {result.unchanged_searches} · skipped: {result.skipped_searches}",
+                f"✅ Suchvorschläge aus Profil v{result.profile_version} übernommen",
+                f"Geändert: {result.applied_searches} · unverändert: {result.unchanged_searches} · übersprungen: {result.skipped_searches}",
             ]
         )

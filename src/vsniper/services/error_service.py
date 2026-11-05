@@ -334,15 +334,15 @@ class ErrorService:
     def _notification_text(event: ErrorEvent) -> str:
         related = ""
         if event.related_entity_type and event.related_entity_id:
-            related = f"\nRelated: {event.related_entity_type} {event.related_entity_id}"
+            related = f"\nBetrifft: {event.related_entity_type} {event.related_entity_id}"
         message = event.message
         if len(message) > 1200:
             message = message[:1199].rstrip() + "…"
         return (
-            f"❌ vsniper error #{event.id}\n"
+            f"❌ vsniper-Fehler #{event.id}\n"
             f"{event.source} · {event.operation}\n"
             f"{event.summary}\n\n{message}{related}\n"
-            f"Occurred: {event.occurred_at.isoformat()}"
+            f"Zeitpunkt: {event.occurred_at.isoformat()}"
         )
 
     def _send_claimed(self, event_id: int, *, bot_token: str, chat_id: str) -> Literal["sent", "retry", "failed"]:

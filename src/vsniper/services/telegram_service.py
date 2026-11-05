@@ -4,6 +4,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Callable, Literal, cast
 
 from sqlalchemy import func, select, update
@@ -44,6 +45,7 @@ ACTIVE_DELIVERY_STATUSES = ("pending", "processing", "sent")
 # Statuses that block re-queuing the same candidate. Includes "failed" so a delivery
 # that exhausted its retries is not re-inserted (with fresh attempts) on every scan.
 DEDUP_DELIVERY_STATUSES = ACTIVE_DELIVERY_STATUSES + ("failed",)
+_LOCAL_TZ = ZoneInfo("Europe/Berlin")
 # The daily borderline probe: at most one per interval, scored within the margin below its threshold.
 BORDERLINE_INTERVAL = timedelta(hours=24)
 BORDERLINE_MARGIN = 15
@@ -107,7 +109,7 @@ class TelegramService:
 
         response = self.telegram_client.send_message(
             chat_id=config.chat_id,
-            text="vsniper test notification: Telegram delivery is configured.",
+            text="vsniper-Testnachricht: Telegram ist eingerichtet.",
         )
         return {"ok": True, "message_id": response.get("message_id"), "chat_id": config.chat_id}
 
@@ -494,15 +496,15 @@ class TelegramService:
 
         if refresh_token_expiry <= now:
             text = (
-                f"⚠️ Your Vinted refresh token expired at "
-                f"{refresh_token_expiry.strftime('%Y-%m-%d %H:%M UTC')}. "
-                f"Update it to keep automatic token refresh working."
+                f"⚠️ Der Vinted-Refresh-Token ist am "
+                f"{refresh_token_expiry.astimezone(_LOCAL_TZ).strftime('%d.%m.%Y um %H:%M Uhr')} abgelaufen. "
+                f"Bitte erneuern, damit die Anmeldung bei Vinted weiter automatisch verlängert wird."
             )
         else:
             text = (
-                f"⚠️ Your Vinted refresh token expires soon "
-                f"({refresh_token_expiry.strftime('%Y-%m-%d %H:%M UTC')}). "
-                f"Update it before then to keep automatic token refresh working."
+                f"⚠️ Der Vinted-Refresh-Token läuft bald ab "
+                f"({refresh_token_expiry.astimezone(_LOCAL_TZ).strftime('%d.%m.%Y um %H:%M Uhr')}). "
+                f"Bitte vorher erneuern, damit die Anmeldung bei Vinted weiter automatisch verlängert wird."
             )
 
         # Phase 2 — send the warning with no DB lock held.
@@ -589,19 +591,22 @@ class TelegramService:
 
     @staticmethod
     def _callback_ack_text(result: TelegramUpdateResult) -> str:
+        verdict = "Gefällt mir" if result.verdict == "like" else "Gefällt mir nicht"
         if result.action == "feedback_recorded" and result.verdict is not None:
-            return f"Saved {result.verdict} feedback."
+            return f"Gespeichert: {verdict}"
         if result.action == "feedback_unchanged" and result.verdict is not None:
-            return f"Already marked {result.verdict}."
+            return f"Schon gespeichert: {verdict}"
         if result.action == "taste_recompute_started":
-            return "Taste recompute started."
+            return "Neuberechnung gestartet."
         if result.action == "taste_recompute_already_running":
-            return "Taste recompute is already running."
+            return "Die Berechnung läuft schon."
         if result.action == "taste_drafts_applied":
-            return "Draft decision saved."
+            return "Entscheidung gespeichert."
         if result.action == "taste_drafts_skipped":
-            return "Skipped drafted changes."
-        return result.detail
+            return "Übersprungen."
+        if result.action == "unauthorized":
+            return "Dieser Chat ist nicht freigeschaltet."
+        return "Das konnte ich nicht verarbeiten."
 
     @staticmethod
     def _message_chat_id(message: TelegramMessage | TelegramCallbackMessage | None) -> int | str | None:
@@ -754,7 +759,7 @@ class TelegramService:
             return result
 
         if parsed.action == "skip_drafts":
-            text = "Skipped drafted search changes. Run /taste whenever you want to revisit them."
+            text = "Suchvorschläge übersprungen. Schick /taste, wenn du sie dir später ansehen willst."
             result = TelegramUpdateResult(
                 action="taste_drafts_skipped",
                 detail=text,

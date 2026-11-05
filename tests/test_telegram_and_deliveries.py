@@ -78,10 +78,7 @@ def test_refresh_token_expiry_warning_sends_once_and_persists_marker(monkeypatch
 
     assert len(sent_messages) == 1
     assert sent_messages[0]['chat_id'] == 'chat-123'
-    assert 'refresh token expires soon' in sent_messages[0]['text']
-    assert '24 hours' not in sent_messages[0]['text']
-    assert '12 hours' not in sent_messages[0]['text']
-    assert '6 hours' not in sent_messages[0]['text']
+    assert 'Refresh-Token läuft bald ab' in sent_messages[0]['text']
     assert settings_row.refresh_token_expiry_warning_sent_for == expiry.isoformat()
     assert settings_row.session_health == {}
 
@@ -239,12 +236,12 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
         {
             'chat_id': 523,
             'message_id': 77,
-            'text': 'queued body\n\nFeedback: 👍 Like\n↩ Reply to add a note (feeds recompute)',
+            'text': 'queued body\n\nDeine Bewertung: 👍 Gefällt mir\n↩ Antworte auf diese Nachricht, um eine Notiz dazu zu hinterlassen.',
             'reply_markup': {'inline_keyboard': []},
         },
     ]
     assert acknowledgements == [
-        {'callback_query_id': 'callback-telegram-1', 'text': 'Saved like feedback.'},
+        {'callback_query_id': 'callback-telegram-1', 'text': 'Gespeichert: Gefällt mir'},
     ]
 
 
@@ -300,7 +297,7 @@ def test_handle_telegram_webhook_rejects_feedback_from_unauthorized_chat(monkeyp
     assert acknowledgements == [
         {
             'callback_query_id': 'callback-forged-1',
-            'text': 'Telegram chat is not authorized to record alert feedback.',
+            'text': 'Dieser Chat ist nicht freigeschaltet.',
         },
     ]
 
@@ -348,8 +345,8 @@ def test_taste_recompute_callback_detects_already_running(monkeypatch) -> None:
 
     assert result.action == 'taste_recompute_already_running'
     assert result.recompute_job_id == 'taste-job-running'
-    assert 'already running' in edits[0]['text']
-    assert acknowledgements == [{'callback_query_id': 'cb-taste-2', 'text': 'Taste recompute is already running.'}]
+    assert 'läuft schon' in edits[0]['text']
+    assert acknowledgements == [{'callback_query_id': 'cb-taste-2', 'text': 'Die Berechnung läuft schon.'}]
 
 
 def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch, tmp_path) -> None:
@@ -406,4 +403,4 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
     with factory() as session:
         deliveries = session.scalars(select(AlertDeliveryState)).all()
         assert [(d.candidate_id, d.kind) for d in deliveries] == [('near-88', 'borderline')]
-        assert deliveries[0].payload_preview.startswith('🤔 Borderline: scored 88/100')
+        assert deliveries[0].payload_preview.startswith('🤔 Knapp daneben: 88/100')

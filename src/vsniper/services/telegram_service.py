@@ -813,7 +813,10 @@ class TelegramService:
         with session_scope() as session:
             delivery = session.scalar(
                 select(AlertDeliveryState)
-                .where(AlertDeliveryState.telegram_message_id == message_id)
+                .where(
+                    AlertDeliveryState.telegram_message_id == message_id,
+                    AlertDeliveryState.telegram_chat_id == str(config.chat_id),
+                )
                 .limit(1)
             )
             if delivery is None:
@@ -839,7 +842,7 @@ class TelegramService:
             )
             return TelegramUpdateResult(
                 action="feedback_recorded",
-                detail=f"Saved comment for {existing_feedback} candidate.",
+                detail="📝 Notiz gespeichert.",
                 candidate_id=candidate_id,
                 learning_snapshot_id=snapshot.id if snapshot is not None else None,
             )
@@ -851,7 +854,7 @@ class TelegramService:
         )
         return TelegramUpdateResult(
             action="feedback_recorded",
-            detail="Saved note-only candidate feedback.",
+            detail="📝 Notiz gespeichert.",
             candidate_id=candidate_id,
             learning_snapshot_id=snapshot.id if snapshot is not None else None,
         )
@@ -889,11 +892,31 @@ class TelegramService:
         self._apply_bot_token(config)
         if payload.message and payload.message.text:
             msg_text = payload.message.text.strip()
+            if not msg_text:
+                return TelegramUpdateResult(action="ignored", detail="Empty Telegram message.")
             command = msg_text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
             if command == "/taste":
                 return self._handle_taste_command(payload.message, config)
-            if payload.message.reply_to_message is not None and msg_text:
-                return self._handle_reply_comment(payload.message, msg_text, config)
+            if payload.message.reply_to_message is not None:
+                message = payload.message
+                if not self._is_authorized_chat(self._message_chat_id(message), config):
+                    return TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized.")
+                if schedule_background is None:
+                    return self._handle_reply_comment(message, msg_text, config)
+
+                # Saving a comment can run an AI call; keep it off the polling thread and confirm afterwards.
+                def save_comment() -> None:
+                    try:
+                        result = self._handle_reply_comment(message, msg_text, config)
+                    except Exception:
+                        logger.exception("Telegram reply comment could not be saved")
+                        self._send_telegram_message(chat_id=config.chat_id, text="❌ Die Notiz konnte ich nicht speichern.")
+                        return
+                    if result.action == "feedback_recorded":
+                        self._send_telegram_message(chat_id=config.chat_id, text=result.detail)
+
+                schedule_background(save_comment)
+                return TelegramUpdateResult(action="feedback_queued", detail="Saving reply comment.")
 
         callback_query = payload.callback_query
         if callback_query is None:
@@ -947,20 +970,29 @@ class TelegramService:
             return result
 
         verdict = parsed_callback.verdict
+        # Telegram stops waiting for an answer after a few seconds, and recording runs an AI call.
+        # Answer now; the edited alert message shows the saved vote.
+        self._acknowledge_callback(callback_query.id, "Wird gespeichert …")
 
         def run() -> TelegramUpdateResult:
             # Recording feedback downloads images and runs a VLM observation; keep that work
             # off the polling thread so the next updates are not held up.
             result = self._record_feedback_for_delivery(delivery_id=delivery_id, verdict=verdict)
             self._update_feedback_message(callback_query, result)
-            self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
 
         if schedule_background is None:
             return run()
 
         def background() -> None:
-            run()
+            try:
+                result = run()
+            except Exception:
+                logger.exception("Telegram vote for delivery %s could not be saved", delivery_id)
+                self._send_telegram_message(chat_id=config.chat_id, text="❌ Die Bewertung konnte ich nicht speichern.")
+                return
+            if result.action not in {"feedback_recorded", "feedback_unchanged"}:
+                self._send_telegram_message(chat_id=config.chat_id, text=self._callback_ack_text(result))
 
         schedule_background(background)
         return TelegramUpdateResult(

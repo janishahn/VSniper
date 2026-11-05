@@ -199,6 +199,8 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
         yield FakeSession()
 
     def fake_apply_feedback(candidate_id, *, verdict: str, comment: str = '', skip_if_unchanged: bool = False):
+        # The press is answered before the slow recording starts.
+        assert acknowledgements == [{'callback_query_id': 'callback-telegram-1', 'text': 'Wird gespeichert …'}]
         candidate.feedback = verdict
         return SimpleNamespace(id='cand-3'), SimpleNamespace(id='snapshot-1')
 
@@ -241,7 +243,7 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
         },
     ]
     assert acknowledgements == [
-        {'callback_query_id': 'callback-telegram-1', 'text': 'Gespeichert: Gefällt mir'},
+        {'callback_query_id': 'callback-telegram-1', 'text': 'Wird gespeichert …'},
     ]
 
 
@@ -404,3 +406,49 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
         deliveries = session.scalars(select(AlertDeliveryState)).all()
         assert [(d.candidate_id, d.kind) for d in deliveries] == [('near-88', 'borderline')]
         assert deliveries[0].payload_preview.startswith('🤔 Knapp daneben: 88/100')
+
+
+def test_reply_comment_is_saved_off_the_polling_thread_and_confirmed(monkeypatch) -> None:
+    service = _build_telegram_service_without_init()
+    scheduled: list = []
+    sent: list[dict] = []
+    saved: list = []
+    service.telegram_client = SimpleNamespace(send_message=lambda **kwargs: sent.append(kwargs))
+    monkeypatch.setattr(
+        'vsniper.services.telegram_service._telegram_config',
+        lambda: TelegramRuntimeConfig('bot-token', '523'),
+    )
+    delivery = SimpleNamespace(candidate_id='cand-3')
+    candidate = SimpleNamespace(id='cand-3', feedback='like')
+
+    class FakeSession:
+        def scalar(self, query):
+            return delivery
+
+        def get(self, model, key):
+            return candidate
+
+    @contextmanager
+    def fake_session_scope():
+        yield FakeSession()
+
+    def fake_apply_feedback(candidate_id, **kwargs):
+        saved.append((candidate_id, kwargs))
+        return candidate, SimpleNamespace(id='snapshot')
+
+    monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
+    service.candidates = SimpleNamespace(apply_feedback=fake_apply_feedback)
+
+    result = service.handle_update(
+        TelegramUpdate.model_validate({
+            'update_id': 22,
+            'message': {'message_id': 78, 'chat': {'id': 523}, 'text': 'Toller Schnitt', 'reply_to_message': {'message_id': 77}},
+        }),
+        schedule_background=scheduled.append,
+    )
+
+    assert result.action == 'feedback_queued'
+    assert not saved and not sent
+    scheduled[0]()
+    assert saved == [('cand-3', {'verdict': 'like', 'comment': 'Toller Schnitt'})]
+    assert sent == [{'chat_id': '523', 'text': '📝 Notiz gespeichert.', 'reply_markup': None}]

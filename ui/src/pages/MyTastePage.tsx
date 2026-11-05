@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ImagePlus, Link2, Plus, RefreshCw, ThumbsDown, ThumbsUp, Upload, X } from 'lucide-react';
 
 import { api, ApiError } from '../lib/api';
 import { clothingItemLabel, clothingItems } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
-import { useModalDismiss } from '../lib/useModalDismiss';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import {
   filterGroupLabel,
@@ -17,6 +16,7 @@ import {
   replaceFilterGroup,
 } from '../lib/searchFilters';
 import { ErrorText } from '../components/ErrorText';
+import { Badge, Empty, Loading, Modal, PageHeader, Section, Stat } from '../components/ui';
 import type {
   ClothingItem,
   ClothingItemTasteProfile,
@@ -29,6 +29,8 @@ import type {
   TasteSample,
   WardrobeZipImportResult,
 } from '../types';
+
+type OfferKind = 'offer_like' | 'offer_dislike';
 
 function fmtUsd(value: number): string {
   return `$${value.toFixed(4)}`;
@@ -52,22 +54,22 @@ function ObservationDetails({ observation }: { observation: ReferenceObservation
     .filter(([, value]) => value);
   if (!rows.length && !observation.vibe_keywords?.length) return null;
   return (
-    <dl className="rubric-list" style={{ marginTop: '1rem' }}>
+    <dl className="kv">
       {rows.map(([label, value]) => (
-        <div className="rubric-list__row" key={label}>
+        <div key={label} style={{ display: 'contents' }}>
           <dt>{label}</dt>
           <dd>{value}</dd>
         </div>
       ))}
       {observation.vibe_keywords?.length ? (
-        <div className="rubric-list__row">
+        <>
           <dt>Vibe</dt>
           <dd>
-            <div className="tag-row" style={{ margin: 0 }}>
-              {observation.vibe_keywords.map((kw) => <span className="tag subtle" key={kw}>{kw}</span>)}
+            <div className="chips">
+              {observation.vibe_keywords.map((kw) => <span className="chip" key={kw}>{kw}</span>)}
             </div>
           </dd>
-        </div>
+        </>
       ) : null}
     </dl>
   );
@@ -92,8 +94,6 @@ function UploadModal({
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalDismiss(dialogRef, onClose, submitting);
 
   // Build preview object URLs from the current files and revoke them whenever the
   // file list changes or the modal unmounts — otherwise every re-render (e.g. a
@@ -137,88 +137,80 @@ function UploadModal({
     }
   };
 
-  return createPortal(
-    <div className="modal-overlay" onClick={() => { if (!submitting) onClose(); }}>
+  return (
+    <Modal
+      label="Add wardrobe photos"
+      title={`Add ${clothingItemLabel(clothingItem)} photos`}
+      sub="Photos of clothes you own and like. They are described by the vision model on the next recompute."
+      onClose={onClose}
+      locked={submitting}
+      error={error}
+      errorPrefix="Upload failed"
+      footer={(
+        <>
+          <button type="button" className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={!files.length || submitting}>
+            {submitting
+              ? `Uploading… ${files.length} left`
+              : files.length > 1 ? `Upload ${files.length} photos` : 'Upload photo'}
+          </button>
+        </>
+      )}
+    >
       <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add wardrobe photos"
-        ref={dialogRef}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
+        className={`drop-zone${dragging ? ' is-dragging' : ''}`}
+        role="button"
+        tabIndex={0}
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); absorb(e.dataTransfer.files); }}
+        onClick={() => inputRef.current?.click()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
       >
-        <div className="modal-header">
-          <h3>Add wardrobe photos · {clothingItemLabel(clothingItem)}</h3>
-          <button className="modal-close secondary" onClick={onClose} disabled={submitting}>×</button>
-        </div>
-
-        <div
-          className={`drop-zone${dragging ? ' dragging' : ''}${files.length ? ' has-files' : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); absorb(e.dataTransfer.files); }}
-          onClick={() => inputRef.current?.click()}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            style={{ display: 'none' }}
-            onChange={(e) => absorb(e.target.files)}
-          />
-          {files.length > 0 ? (
-            <div className="drop-zone-preview">
-              {files.map((f, i) => (
-                <div key={i} className="drop-zone-thumb">
-                  {previews[i] && <img src={previews[i]} alt="" />}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="drop-zone-empty">
-              <span className="drop-zone-plus">+</span>
-              <p>Drop photos here or click to browse</p>
-              <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.25rem' }}>Multiple images supported</p>
-            </div>
-          )}
-        </div>
-
-        {files.length > 0 && (
-          <p style={{ fontSize: '0.85rem', marginTop: '0.6rem', color: '#9db0db' }}>
-            {files.length} photo{files.length > 1 ? 's' : ''} selected
-            <button
-              className="secondary"
-              style={{ marginLeft: '0.75rem', padding: '0.2rem 0.6rem', fontSize: '0.78rem' }}
-              onClick={(e) => { e.stopPropagation(); setFiles([]); setNotice(null); }}
-              disabled={submitting}
-            >
-              Clear
-            </button>
-          </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => absorb(e.target.files)}
+        />
+        {files.length > 0 ? (
+          <div className="tiles">
+            {files.map((f, i) => (
+              <div key={`${f.name}:${f.size}`} className="tile">
+                {previews[i] ? <img src={previews[i]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="stack" style={{ justifyItems: 'center', gap: 'var(--s1)' }}>
+            <ImagePlus size={22} aria-hidden="true" />
+            <span>Drop photos here or click to choose</span>
+          </div>
         )}
+      </div>
 
-        <label style={{ marginTop: '1rem', display: 'block' }}>
-          Note <span className="muted" style={{ fontSize: '0.82rem' }}>(optional)</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. vintage style, favourite piece…"
-          />
-        </label>
-
-        <div className="button-row" style={{ marginTop: '1.25rem' }}>
-          <button className="secondary" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button onClick={submit} disabled={!files.length || submitting}>
-            {submitting ? 'Uploading…' : `Upload ${files.length > 1 ? `${files.length} photos` : 'photo'}`}
+      {files.length > 0 ? (
+        <div className="row">
+          <span className="small muted">{files.length} photo{files.length > 1 ? 's' : ''} selected</span>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => { setFiles([]); setNotice(null); }}
+            disabled={submitting}
+          >
+            Clear
           </button>
         </div>
-        {notice ? <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.6rem' }}>{notice}</p> : null}
-        <ErrorText error={error} prefix="Upload failed" />
-      </div>
-    </div>,
-    document.body,
+      ) : null}
+      {notice ? <p className="hint">{notice}</p> : null}
+
+      <label className="field">
+        Note <span className="hint">Optional, applies to every photo in this upload</span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Favourite piece, the fit is why…" />
+      </label>
+    </Modal>
   );
 }
 
@@ -231,19 +223,17 @@ function AddOfferModal({
   onClose: () => void;
   onSubmit: (payload: {
     vinted_url: string;
-    kind: 'offer_like' | 'offer_dislike';
+    kind: OfferKind;
     clothing_item: ClothingItem;
     note: string;
   }) => Promise<unknown>;
 }) {
   const [url, setUrl] = useState('');
-  const [kind, setKind] = useState<'offer_like' | 'offer_dislike'>('offer_like');
+  const [kind, setKind] = useState<OfferKind>('offer_like');
   const [clothingItem, setClothingItem] = useState<ClothingItem>('hosen');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalDismiss(dialogRef, onClose, submitting);
   const recoveryPath = error instanceof ApiError
     && error.code === 'vinted_browser_challenge'
     ? error.recoveryPath
@@ -263,81 +253,69 @@ function AddOfferModal({
     }
   };
 
-  return createPortal(
-    <div className="modal-overlay" onClick={() => { if (!submitting) onClose(); }}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Add offer by URL"
-        ref={dialogRef}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h3>Add offer by URL</h3>
-          <button className="modal-close secondary" onClick={onClose} disabled={submitting}>×</button>
-        </div>
+  return (
+    <Modal
+      label="Add a Vinted listing"
+      title="Add a Vinted listing"
+      sub="A listing you'd buy or would never buy. It becomes training data for the next recompute."
+      onClose={onClose}
+      locked={submitting}
+      footer={(
+        <>
+          <button type="button" className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={!url.trim() || submitting}>
+            {submitting ? 'Adding…' : 'Add listing'}
+          </button>
+        </>
+      )}
+    >
+      <label className="field">
+        Listing URL
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
+          placeholder="https://www.vinted.de/items/…"
+          inputMode="url"
+          autoFocus
+        />
+      </label>
 
-        <label style={{ display: 'block' }}>
-          Vinted listing URL
-          <input
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="vinted.de/items/… or https://www.vinted.de/items/…"
-            autoFocus
-          />
-        </label>
-
-        <label style={{ marginTop: '1rem', display: 'block' }}>
+      <div className="fields-2">
+        <div className="field">
           Verdict
-          <select value={kind} onChange={(e) => setKind(e.target.value as 'offer_like' | 'offer_dislike')}>
-            <option value="offer_like">Liked</option>
-            <option value="offer_dislike">Disliked</option>
-          </select>
-        </label>
-
-        <label style={{ marginTop: '1rem', display: 'block' }}>
-          Clothing item
+          <div className="seg" role="group" aria-label="Verdict">
+            <button type="button" aria-pressed={kind === 'offer_like'} onClick={() => setKind('offer_like')}>
+              <ThumbsUp size={14} aria-hidden="true" /> Like
+            </button>
+            <button type="button" aria-pressed={kind === 'offer_dislike'} onClick={() => setKind('offer_dislike')}>
+              <ThumbsDown size={14} aria-hidden="true" /> Dislike
+            </button>
+          </div>
+        </div>
+        <label className="field">
+          Clothing bucket
           <select value={clothingItem} onChange={(e) => setClothingItem(e.target.value as ClothingItem)}>
             {clothingItems.map((item) => (
               <option key={item.value} value={item.value}>{item.label}</option>
             ))}
           </select>
         </label>
-
-        <label style={{ marginTop: '1rem', display: 'block' }}>
-          Note <span className="muted" style={{ fontSize: '0.82rem' }}>(optional)</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Why does this match (or not)?"
-          />
-        </label>
-
-        <div className="button-row" style={{ marginTop: '1.25rem' }}>
-          <button className="secondary" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button onClick={submit} disabled={!url.trim() || submitting}>
-            {submitting ? 'Adding…' : 'Add offer'}
-          </button>
-        </div>
-        <ErrorText error={error} prefix="Add offer failed" />
-        {recoveryPath && (
-          <div className="button-row" style={{ marginTop: '0.75rem' }}>
-            <button
-              className="secondary"
-              onClick={() => window.open(recoveryPath, '_blank', 'noopener,noreferrer')}
-            >
-              Open Vinted browser
-            </button>
-            <span className="muted" style={{ fontSize: '0.82rem' }}>
-              Complete the verification there, then retry this import.
-            </span>
-          </div>
-        )}
       </div>
-    </div>,
-    document.body,
+
+      <label className="field">
+        Note <span className="hint">Optional</span>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why does this match, or miss?" />
+      </label>
+
+      <ErrorText error={error} prefix="Add listing failed" />
+      {recoveryPath ? (
+        <div className="notice notice-warn">
+          <span>Vinted wants a verification. Solve it in the server's browser, then add the listing again.</span>
+          <a className="btn btn-sm" href={recoveryPath} target="_blank" rel="noopener noreferrer">Open Vinted browser</a>
+        </div>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -353,7 +331,7 @@ function SampleDetailModal({
 }: {
   sample: TasteSample;
   onClose: () => void;
-  onUpdate: (note: string, clothingItem: ClothingItem, kind?: 'offer_like' | 'offer_dislike') => void;
+  onUpdate: (note: string, clothingItem: ClothingItem, kind?: OfferKind) => void;
   onDelete: () => void;
   isUpdating: boolean;
   error: unknown;
@@ -362,102 +340,101 @@ function SampleDetailModal({
   const [clothingItem, setClothingItem] = useState<ClothingItem>(sample.clothing_item);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const isOffer = sample.kind === 'offer_like' || sample.kind === 'offer_dislike';
-  const [offerKind, setOfferKind] = useState<'offer_like' | 'offer_dislike'>(
+  const [offerKind, setOfferKind] = useState<OfferKind>(
     sample.kind === 'offer_like' || sample.kind === 'offer_dislike' ? sample.kind : 'offer_like',
   );
   const image = sample.image_urls[0];
   // The first analysed image's observation is the one matching the displayed photo.
   const observation = sample.image_observations?.[0]?.observation ?? null;
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalDismiss(dialogRef, onClose, isUpdating);
+  const facts = [
+    sample.brand,
+    sample.size ? `size ${sample.size}` : '',
+    sample.price_eur != null ? `${sample.price_eur.toFixed(2)} €` : '',
+  ].filter(Boolean).join(' · ');
 
-  return createPortal(
-    <div className="modal-overlay" onClick={() => { if (!isUpdating) onClose(); }}>
-      <div
-        className="modal modal--detail"
-        role="dialog"
-        aria-modal="true"
-        aria-label={sample.title || 'Item'}
-        ref={dialogRef}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-header">
-          <h3 style={{ fontSize: '1rem' }}>{sample.title || 'Item'}</h3>
-          <button className="modal-close secondary" onClick={onClose} disabled={isUpdating}>×</button>
-        </div>
-        <div className="sample-detail-body">
-          {image && <img className="sample-detail-image" src={image} alt="" />}
-          <div className="sample-detail-info">
-            {(sample.brand || sample.size || sample.price_eur) && (
-              <p className="muted" style={{ fontSize: '0.88rem', margin: '0 0 0.75rem' }}>
-                {[sample.brand, sample.size ? `size ${sample.size}` : '', sample.price_eur != null ? `€${sample.price_eur.toFixed(2)}` : '']
-                  .filter(Boolean).join(' · ')}
-              </p>
-            )}
-            <p className="muted" style={{ fontSize: '0.88rem', margin: '0 0 0.75rem' }}>
-              {clothingItemLabel(sample.clothing_item)}
-            </p>
-            {sample.vinted_url && (
-              <a href={sample.vinted_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.88rem' }}>
-                Open on Vinted ↗
-              </a>
-            )}
-            {isOffer && (
-              <label style={{ marginTop: '1rem', display: 'block' }}>
+  return (
+    <Modal
+      label={sample.title || 'Sample'}
+      title={sample.title || (sample.kind === 'wardrobe' ? 'Wardrobe photo' : 'Listing')}
+      sub={facts || clothingItemLabel(sample.clothing_item)}
+      onClose={onClose}
+      locked={isUpdating}
+      size="lg"
+      error={error}
+      errorPrefix="Sample update failed"
+      footer={confirmingDelete ? (
+        <>
+          <span className="small muted" style={{ marginRight: 'auto' }}>Remove this sample from your taste data?</span>
+          <button type="button" className="btn" onClick={() => setConfirmingDelete(false)} disabled={isUpdating}>Keep</button>
+          <button type="button" className="btn btn-danger" onClick={onDelete} disabled={isUpdating}>
+            {isUpdating ? 'Removing…' : 'Remove'}
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn btn-ghost btn-danger"
+            style={{ marginRight: 'auto' }}
+            onClick={() => setConfirmingDelete(true)}
+            disabled={isUpdating}
+          >
+            Remove
+          </button>
+          <button type="button" className="btn" onClick={onClose} disabled={isUpdating}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => onUpdate(note, clothingItem, isOffer ? offerKind : undefined)}
+            disabled={isUpdating}
+          >
+            {isUpdating ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      )}
+    >
+      <div className="sample-detail">
+        {image ? <img src={image} alt="" /> : <div className="tile" />}
+        <div className="stack-lg">
+          <div className="fields">
+            {isOffer ? (
+              <div className="field">
                 Verdict
-                <select value={offerKind} onChange={(e) => setOfferKind(e.target.value as 'offer_like' | 'offer_dislike')}>
-                  <option value="offer_like">Liked</option>
-                  <option value="offer_dislike">Disliked</option>
-                </select>
-              </label>
-            )}
-            <label style={{ marginTop: '1rem', display: 'block' }}>
-              Clothing item
+                <div className="seg" role="group" aria-label="Verdict">
+                  <button type="button" aria-pressed={offerKind === 'offer_like'} onClick={() => setOfferKind('offer_like')}>
+                    <ThumbsUp size={14} aria-hidden="true" /> Like
+                  </button>
+                  <button type="button" aria-pressed={offerKind === 'offer_dislike'} onClick={() => setOfferKind('offer_dislike')}>
+                    <ThumbsDown size={14} aria-hidden="true" /> Dislike
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <label className="field">
+              Clothing bucket
               <select value={clothingItem} onChange={(e) => setClothingItem(e.target.value as ClothingItem)}>
                 {clothingItems.map((item) => (
                   <option key={item.value} value={item.value}>{item.label}</option>
                 ))}
               </select>
             </label>
-            <label style={{ marginTop: '1rem', display: 'block' }}>
+            <label className="field">
               Note
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={3} />
             </label>
-            {observation ? (
-              <div style={{ marginTop: '1rem' }}>
-                <p className="eyebrow" style={{ margin: 0 }}>AI read this photo as</p>
-                <ObservationDetails observation={observation} />
-              </div>
-            ) : (
-              <p className="muted" style={{ fontSize: '0.82rem', marginTop: '1rem' }}>
-                No AI observation yet — recompute your taste profile to analyse this photo.
-              </p>
-            )}
+            {sample.vinted_url ? (
+              <a href={sample.vinted_url} target="_blank" rel="noreferrer" className="small">Open on Vinted</a>
+            ) : null}
+          </div>
+          <div className="stack">
+            <h3 style={{ fontSize: 'var(--fs-base)' }}>What the vision model saw</h3>
+            {observation
+              ? <ObservationDetails observation={observation} />
+              : <p className="hint">Not analysed yet. The next recompute describes this photo.</p>}
           </div>
         </div>
-        <div className="button-row" style={{ marginTop: '1rem' }}>
-          {confirmingDelete ? (
-            <>
-              <span className="muted" style={{ fontSize: '0.88rem', alignSelf: 'center' }}>Remove this sample?</span>
-              <button className="secondary" style={{ color: '#ff9f9f' }} onClick={onDelete} disabled={isUpdating}>Yes, remove</button>
-              <button className="secondary" onClick={() => setConfirmingDelete(false)} disabled={isUpdating}>Cancel</button>
-            </>
-          ) : (
-            <>
-              <button className="secondary" style={{ color: '#ff9f9f' }} onClick={() => setConfirmingDelete(true)} disabled={isUpdating}>
-                {isUpdating ? 'Working…' : 'Remove'}
-              </button>
-              <button onClick={() => onUpdate(note, clothingItem, isOffer ? offerKind : undefined)} disabled={isUpdating}>
-                {isUpdating ? 'Saving…' : 'Save'}
-              </button>
-            </>
-          )}
-        </div>
-        <ErrorText error={error} prefix="Sample update failed" />
       </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }
 
@@ -466,13 +443,17 @@ function SampleDetailModal({
 function ImageGrid({
   samples,
   onAdd,
+  addLabel,
+  emptyLabel,
   onDelete,
   onUpdate,
 }: {
   samples: TasteSample[];
   onAdd?: () => void;
+  addLabel?: string;
+  emptyLabel?: string;
   onDelete: (id: string) => Promise<void> | void;
-  onUpdate: (id: string, note: string, clothingItem: ClothingItem, kind?: 'offer_like' | 'offer_dislike') => Promise<void> | void;
+  onUpdate: (id: string, note: string, clothingItem: ClothingItem, kind?: OfferKind) => Promise<void> | void;
 }) {
   const [selected, setSelected] = useState<TasteSample | null>(null);
   const [actionPending, setActionPending] = useState(false);
@@ -494,64 +475,56 @@ function ImageGrid({
 
   return (
     <>
-      <div className="image-grid">
-        {onAdd && (
-          <button className="image-tile image-tile--add" onClick={onAdd} title="Add photos">
-            <span>+</span>
-          </button>
-        )}
-        {samples.map((sample) => {
-          const image = sample.image_urls[0];
-          return (
-            <div
-              key={sample.id}
-              className="image-tile"
-              role="button"
-              tabIndex={0}
-              aria-label={`Open ${sample.title || 'item'} details`}
-              onClick={() => setSelected(sample)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(sample); }
-              }}
-              title={sample.note || undefined}
-            >
-              {image
-                ? <img src={image} alt="" />
-                : <div className="image-tile__placeholder">?</div>}
-              {pendingDeleteId === sample.id ? (
-                <span className="image-tile__delete-confirm" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="image-tile__delete-confirm-yes"
-                    onClick={(e) => { e.stopPropagation(); setPendingDeleteId(null); void runAction(() => onDelete(sample.id), false); }}
-                    disabled={actionPending}
-                    title="Confirm remove"
-                  >✓</button>
-                  <button
-                    className="image-tile__delete-confirm-no"
-                    onClick={(e) => { e.stopPropagation(); setPendingDeleteId(null); }}
-                    title="Cancel"
-                  >✕</button>
-                </span>
-              ) : (
-                <button
-                  className="image-tile__delete"
-                  onClick={(e) => { e.stopPropagation(); setPendingDeleteId(sample.id); }}
-                  title="Remove"
-                  disabled={actionPending}
-                >
-                  ×
+      {!samples.length && !onAdd ? (
+        <p className="hint">{emptyLabel ?? 'None yet.'}</p>
+      ) : (
+        <div className="tiles">
+          {onAdd ? (
+            <button type="button" className="tile-add" onClick={onAdd} aria-label={addLabel ?? 'Add photos'} title={addLabel}>
+              <Plus size={18} aria-hidden="true" />
+            </button>
+          ) : null}
+          {samples.map((sample) => {
+            const image = sample.image_urls[0];
+            const name = sample.title || sample.file_name || 'sample';
+            return (
+              <div key={sample.id} className="tile" title={sample.note || undefined}>
+                <button type="button" className="tile-open" onClick={() => setSelected(sample)} aria-label={`Open ${name}`}>
+                  {image ? <img src={image} alt="" loading="lazy" /> : <span className="tile-placeholder">?</span>}
                 </button>
-              )}
-            </div>
-          );
-        })}
-        {!samples.length && !onAdd && (
-          <p className="muted" style={{ fontSize: '0.88rem', padding: '0.5rem 0' }}>None yet.</p>
-        )}
-      </div>
-      {!selected && <ErrorText error={actionError} prefix="Sample update failed" />}
+                {pendingDeleteId === sample.id ? (
+                  <div className="tile-confirm">
+                    <button
+                      type="button"
+                      className="yes"
+                      onClick={() => { setPendingDeleteId(null); void runAction(() => onDelete(sample.id), false); }}
+                      disabled={actionPending}
+                    >
+                      Remove
+                    </button>
+                    <button type="button" className="no" onClick={() => setPendingDeleteId(null)} aria-label="Keep">
+                      Keep
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="tile-remove"
+                    onClick={() => setPendingDeleteId(sample.id)}
+                    aria-label={`Remove ${name}`}
+                    disabled={actionPending}
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!selected ? <ErrorText error={actionError} prefix="Sample update failed" /> : null}
 
-      {selected && (
+      {selected ? (
         <SampleDetailModal
           sample={selected}
           onClose={() => setSelected(null)}
@@ -564,7 +537,7 @@ function ImageGrid({
           isUpdating={actionPending}
           error={actionError}
         />
-      )}
+      ) : null}
     </>
   );
 }
@@ -610,69 +583,6 @@ function wordDiff(oldText: string, newText: string): DiffToken[] {
   while (newIndex < newTokens.length) result.push({ value: newTokens[newIndex++], type: 'added' });
   return result;
 }
-
-function PromptDiff({
-  oldPrompt,
-  newPrompt,
-  oldCharacterCount,
-  oldTokenCount,
-  newCharacterCount,
-  newTokenCount,
-  tokenizer,
-}: {
-  oldPrompt: string;
-  newPrompt: string;
-  oldCharacterCount?: number | null;
-  oldTokenCount?: number | null;
-  newCharacterCount?: number | null;
-  newTokenCount?: number | null;
-  tokenizer: string;
-}) {
-  const tokens = wordDiff(oldPrompt, newPrompt);
-  const changedCount = tokens.filter((token) => token.type !== 'same' && /\S/.test(token.value)).length;
-  const oldTokens = tokens.filter((token) => token.type !== 'added');
-  const newTokens = tokens.filter((token) => token.type !== 'removed');
-  return (
-    <div style={{ margin: '0.75rem 0 0', maxHeight: '30rem', overflow: 'auto' }}>
-      {oldCharacterCount != null && oldTokenCount != null && newCharacterCount != null && newTokenCount != null && (
-        <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
-          Old: {oldCharacterCount.toLocaleString()} chars · {oldTokenCount.toLocaleString()} tokens
-          {' · '}New: {newCharacterCount.toLocaleString()} chars · {newTokenCount.toLocaleString()} tokens
-          {' · '}{tokenizer}
-        </p>
-      )}
-      {changedCount === 0 ? (
-        <p className="muted" style={{ margin: 0 }}>No changes in taste prompt.</p>
-      ) : (
-        <>
-          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>{changedCount} word{changedCount !== 1 ? 's' : ''} changed</p>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', fontFamily: 'monospace' }}>
-            <tbody>
-              <tr>
-                <td style={{ padding: '8px', whiteSpace: 'pre-wrap', verticalAlign: 'top', width: '50%', borderRight: '1px solid var(--border)' }}>
-                  {oldTokens.map((token, index) => (
-                    <span key={index} style={token.type === 'removed' ? { background: 'var(--danger-bg)', textDecoration: 'line-through', opacity: 0.7 } : undefined}>
-                      {token.value}
-                    </span>
-                  ))}
-                </td>
-                <td style={{ padding: '8px', whiteSpace: 'pre-wrap', verticalAlign: 'top', width: '50%' }}>
-                  {newTokens.map((token, index) => (
-                    <span key={index} style={token.type === 'added' ? { background: 'var(--ok-bg)' } : undefined}>
-                      {token.value}
-                    </span>
-                  ))}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </>
-      )}
-    </div>
-  );
-}
-
-// ─── Draft searches ───────────────────────────────────────────────────────────
 
 type DraftFieldKey = 'query';
 type DiffStatus = 'added' | 'changed' | 'removed' | 'unchanged';
@@ -767,6 +677,95 @@ function statusLabel(status: DiffStatus): string {
   return 'same';
 }
 
+function PromptDiff({
+  oldPrompt,
+  newPrompt,
+  oldCharacterCount,
+  oldTokenCount,
+  newCharacterCount,
+  newTokenCount,
+  tokenizer,
+}: {
+  oldPrompt: string;
+  newPrompt: string;
+  oldCharacterCount?: number | null;
+  oldTokenCount?: number | null;
+  newCharacterCount?: number | null;
+  newTokenCount?: number | null;
+  tokenizer: string;
+}) {
+  const tokens = wordDiff(oldPrompt, newPrompt);
+  const changedCount = tokens.filter((token) => token.type !== 'same' && /\S/.test(token.value)).length;
+  const oldTokens = tokens.filter((token) => token.type !== 'added');
+  const newTokens = tokens.filter((token) => token.type !== 'removed');
+  return (
+    <div className="stack">
+      <p className="hint">
+        {changedCount === 0 ? 'No changes in the taste prompt.' : `${changedCount} word${changedCount !== 1 ? 's' : ''} changed.`}
+        {oldCharacterCount != null && oldTokenCount != null && newCharacterCount != null && newTokenCount != null
+          ? ` Before ${oldCharacterCount.toLocaleString()} chars / ${oldTokenCount.toLocaleString()} tokens, after ${newCharacterCount.toLocaleString()} chars / ${newTokenCount.toLocaleString()} tokens (${tokenizer}).`
+          : ''}
+      </p>
+      {changedCount > 0 ? (
+        <div className="prompt-diff">
+          <pre className="pre" aria-label="Previous prompt">
+            {oldTokens.map((token, index) => (
+              <span key={index} className={token.type === 'removed' ? 'diff-removed' : undefined}>{token.value}</span>
+            ))}
+          </pre>
+          <pre className="pre" aria-label="New prompt">
+            {newTokens.map((token, index) => (
+              <span key={index} className={token.type === 'added' ? 'diff-added' : undefined}>{token.value}</span>
+            ))}
+          </pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ─── Draft searches ───────────────────────────────────────────────────────────
+
+const diffTone = { added: 'ok', changed: 'accent', removed: 'bad', unchanged: 'neutral' } as const;
+
+function DiffRow({
+  label,
+  status,
+  checked,
+  disabled,
+  onToggle,
+  left,
+  right,
+  leftLabel = 'Current',
+  rightLabel = 'Draft',
+}: {
+  label: string;
+  status: DiffStatus;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  left: ReactNode;
+  right: ReactNode;
+  leftLabel?: string;
+  rightLabel?: string;
+}) {
+  return (
+    <label className={`diff-row${status === 'unchanged' ? ' is-unchanged' : ''}`}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
+      <div>
+        <div className="row-between">
+          <strong>{label}</strong>
+          <Badge tone={diffTone[status]}>{statusLabel(status)}</Badge>
+        </div>
+        <div className="diff-cols">
+          <p><span>{leftLabel}</span>{left}</p>
+          <p><span>{rightLabel}</span>{right}</p>
+        </div>
+      </div>
+    </label>
+  );
+}
+
 function DraftCompareModal({
   draft,
   itemProfile,
@@ -797,13 +796,9 @@ function DraftCompareModal({
   const [selectedFilterGroups, setSelectedFilterGroups] = useState<Set<string>>(
     () => defaultDraftSelection(search, draft).filterGroups,
   );
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalDismiss(dialogRef, onClose, isPending);
 
   const hasSelection = selectedFields.size > 0 || selectedFilterGroups.size > 0;
-  const fieldRows: { key: DraftFieldKey; label: string; current: string; draft: string }[] = [
-    { key: 'query', label: 'Vinted query', current: search.query || '—', draft: draft.query || '—' },
-  ];
+  const queryChanged = search.query !== draft.query;
   const oldItemProfile = learningSnapshot?.old_taste_profile?.item_profiles[draft.clothing_item] ?? null;
   const newItemProfile = learningSnapshot?.new_taste_profile?.item_profiles[draft.clothing_item] ?? itemProfile;
   const profileRows: { label: string; previous: string; current: string; judgeUse: string }[] = newItemProfile ? [
@@ -811,118 +806,101 @@ function DraftCompareModal({
       label: 'Transparency labels',
       previous: oldItemProfile?.transparency_labels.length ? oldItemProfile.transparency_labels.join(' · ') : 'None',
       current: newItemProfile.transparency_labels.length ? newItemProfile.transparency_labels.join(' · ') : 'None',
-      judgeUse: 'For you only — quick labels that summarise the profile; not sent to the judge.',
+      judgeUse: 'For you only. Quick labels that summarise the profile; not sent to the judge.',
     },
     {
       label: 'Instant alerts',
       previous: oldItemProfile?.instant_alert_examples.length ? oldItemProfile.instant_alert_examples.join(' · ') : 'None',
       current: newItemProfile.instant_alert_examples.length ? newItemProfile.instant_alert_examples.join(' · ') : 'None',
-      judgeUse: 'Fallback positive calibration examples for the judge when there are no real liked listings yet.',
+      judgeUse: 'Positive calibration examples for the judge while there are no real liked listings yet.',
     },
     {
       label: 'Instant rejects',
       previous: oldItemProfile?.instant_reject_examples.length ? oldItemProfile.instant_reject_examples.join(' · ') : 'None',
       current: newItemProfile.instant_reject_examples.length ? newItemProfile.instant_reject_examples.join(' · ') : 'None',
-      judgeUse: 'Fallback negative calibration examples for the judge when there are no real disliked listings yet.',
+      judgeUse: 'Negative calibration examples for the judge while there are no real disliked listings yet.',
     },
   ] : [];
 
-  return createPortal(
-    <div className="modal-overlay" onClick={() => { if (!isPending) onClose(); }}>
-      <div
-        className="modal draft-compare-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Compare generated draft — ${clothingItemLabel(draft.clothing_item)}`}
-        ref={dialogRef}
-        tabIndex={-1}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="modal-header">
-          <div>
-            <p className="eyebrow">Compare generated draft</p>
-            <h3>{clothingItemLabel(draft.clothing_item)}</h3>
-          </div>
-          <button className="modal-close secondary" onClick={onClose} disabled={isPending}>×</button>
-        </div>
-
-        <p className="muted" style={{ marginTop: 0 }}>{draft.rationale || 'No rationale provided.'}</p>
-
-        <div className="draft-diff-list">
-          {fieldRows.map((row) => {
-            const changed = row.current !== row.draft;
-            return (
-              <label className={`draft-diff-row ${changed ? 'changed' : 'unchanged'}`} key={row.key}>
-                <input
-                  type="checkbox"
-                  checked={selectedFields.has(row.key)}
-                  disabled={!changed || isPending}
-                  onChange={() => setSelectedFields((current) => toggleSetValue(current, row.key))}
-                />
-                <div className="draft-diff-row__body">
-                  <div className="row-between">
-                    <strong>{row.label}</strong>
-                    <span className={`diff-badge ${changed ? 'changed' : 'unchanged'}`}>{changed ? 'changed' : 'same'}</span>
-                  </div>
-                  <div className="draft-diff-columns">
-                    <p><span>Current</span>{row.current}</p>
-                    <p><span>Draft</span>{row.draft}</p>
-                  </div>
-                </div>
-              </label>
-            );
-          })}
-
+  return (
+    <Modal
+      label={`Compare generated draft for ${clothingItemLabel(draft.clothing_item)}`}
+      title={`${clothingItemLabel(draft.clothing_item)}: generated search`}
+      sub={draft.rationale || 'No rationale provided.'}
+      onClose={onClose}
+      locked={isPending}
+      size="lg"
+      error={error}
+      errorPrefix="Apply failed"
+      footer={(
+        <>
+          <button type="button" className="btn" onClick={onClose} disabled={isPending}>Cancel</button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => onApply(mergeDraftIntoSearch(search, draft, selectedFields, selectedFilterGroups))}
+            disabled={isPending || !hasSelection}
+          >
+            {isPending ? 'Applying…' : 'Apply selected'}
+          </button>
+        </>
+      )}
+    >
+      <div className="stack">
+        <p className="hint">Tick the changes to copy into the saved search. Sizes and price stay as they are.</p>
+        <div className="diff-list">
+          <DiffRow
+            label="Vinted query"
+            status={queryChanged ? 'changed' : 'unchanged'}
+            checked={selectedFields.has('query')}
+            disabled={!queryChanged || isPending}
+            onToggle={() => setSelectedFields((current) => toggleSetValue(current, 'query'))}
+            left={search.query || '–'}
+            right={draft.query || '–'}
+          />
           {diffs.map((diff) => (
-            <label className={`draft-diff-row ${diff.status}`} key={diff.key}>
-              <input
-                type="checkbox"
-                checked={selectedFilterGroups.has(diff.key)}
-                disabled={diff.status === 'unchanged' || isPending}
-                onChange={() => setSelectedFilterGroups((current) => toggleSetValue(current, diff.key))}
-              />
-              <div className="draft-diff-row__body">
-                <div className="row-between">
-                  <strong>{diff.label}</strong>
-                  <span className={`diff-badge ${diff.status}`}>{statusLabel(diff.status)}</span>
-                </div>
-                <div className="draft-diff-columns">
-                  <p><span>Current</span>{formatSearchFilters(diff.current)}</p>
-                  <p><span>Draft</span>{formatSearchFilters(diff.draft)}</p>
-                </div>
-              </div>
-            </label>
+            <DiffRow
+              key={diff.key}
+              label={diff.label}
+              status={diff.status}
+              checked={selectedFilterGroups.has(diff.key)}
+              disabled={diff.status === 'unchanged' || isPending}
+              onToggle={() => setSelectedFilterGroups((current) => toggleSetValue(current, diff.key))}
+              left={formatSearchFilters(diff.current)}
+              right={formatSearchFilters(diff.draft)}
+            />
           ))}
         </div>
+      </div>
 
-        {profileRows.length ? (
-          <section className="draft-profile-fields" aria-label="Taste-profile calibration comparison">
-            <p className="muted" style={{ margin: 0, gridColumn: '1 / -1', fontSize: '0.82rem' }}>
-              Taste-profile calibration from the last recompute.
-              {!oldItemProfile ? ' The previous profile was not saved, so only the new values are available.' : ''}
-            </p>
-            {profileRows.map((row) => {
-              const changed = row.previous !== row.current;
-              return (
-                <div className="draft-profile-field" key={row.label}>
+      {profileRows.length ? (
+        <div className="stack">
+          <h3 style={{ fontSize: 'var(--fs-base)' }}>Profile calibration from the last recompute</h3>
+          {!oldItemProfile ? <p className="hint">The previous profile wasn't saved, so only the new values are shown.</p> : null}
+          <div className="diff-list">
+            {profileRows.map((row) => (
+              <div className="diff-row is-static" key={row.label} style={{ gridTemplateColumns: 'minmax(0, 1fr)', cursor: 'default' }}>
+                <div>
                   <div className="row-between">
-                    <span>{row.label}</span>
-                    <span className={`diff-badge ${changed ? 'changed' : 'unchanged'}`}>{changed ? 'changed' : 'same'}</span>
+                    <strong>{row.label}</strong>
+                    <Badge tone={row.previous !== row.current ? 'accent' : 'neutral'}>{row.previous !== row.current ? 'changed' : 'same'}</Badge>
                   </div>
-                  <div className="draft-diff-columns">
+                  <div className="diff-cols">
                     <p><span>Previous</span>{row.previous}</p>
                     <p><span>New</span>{row.current}</p>
                   </div>
-                  <p className="muted" style={{ marginBottom: 0, fontSize: '0.78rem' }}>{row.judgeUse}</p>
+                  <p className="hint" style={{ marginTop: 'var(--s2)' }}>{row.judgeUse}</p>
                 </div>
-              );
-            })}
-          </section>
-        ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
-        {learningSnapshot?.old_prompt && learningSnapshot?.new_prompt && (
-          <details className="details-block" style={{ marginTop: '1rem' }}>
-            <summary>Prompt diff (last recompute: {learningSnapshot.reason})</summary>
+      {learningSnapshot?.old_prompt && learningSnapshot?.new_prompt ? (
+        <details className="disclosure">
+          <summary>Prompt diff from the last recompute ({learningSnapshot.reason})</summary>
+          <div className="disclosure-body">
             <PromptDiff
               oldPrompt={learningSnapshot.old_prompt}
               newPrompt={learningSnapshot.new_prompt}
@@ -932,22 +910,10 @@ function DraftCompareModal({
               newTokenCount={learningSnapshot.new_prompt_token_count}
               tokenizer={learningSnapshot.prompt_tokenizer}
             />
-          </details>
-        )}
-
-        <div className="button-row" style={{ marginTop: '1rem' }}>
-          <button
-            onClick={() => onApply(mergeDraftIntoSearch(search, draft, selectedFields, selectedFilterGroups))}
-            disabled={isPending || !hasSelection}
-          >
-            {isPending ? 'Applying…' : 'Apply selected changes'}
-          </button>
-          <button className="secondary" onClick={onClose} disabled={isPending}>Cancel</button>
-        </div>
-        <ErrorText error={error} prefix="Draft apply failed" />
-      </div>
-    </div>,
-    document.body,
+          </div>
+        </details>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -1001,11 +967,15 @@ function DraftSearches({
   if (!drafts.length && !allDrafts.length) return null;
 
   return (
-    <article className="card" style={{ marginTop: '1rem' }}>
-      <div className="row-between" style={{ marginBottom: '1rem' }}>
-        <h4 style={{ margin: 0 }}>Generated search drafts</h4>
+    <div className="panel stack">
+      <div className="row-between" style={{ alignItems: 'center' }}>
+        <div>
+          <h3>Suggested search</h3>
+          <p className="hint">The recompute proposes a Vinted search for each bucket. Nothing changes until you apply it.</p>
+        </div>
         <button
-          className="secondary"
+          type="button"
+          className="btn btn-sm"
           onClick={() => quickApplyAllMutation.mutate()}
           disabled={
             searchesQuery.isLoading
@@ -1013,59 +983,58 @@ function DraftSearches({
             || quickApplyAllMutation.isPending
             || quickApplicableCount === 0
           }
-          title={quickApplicableCount ? 'Apply the same defaults preselected in every comparison.' : 'No preselected draft changes to apply.'}
+          title={quickApplicableCount ? 'Apply the preselected changes for every bucket.' : 'No preselected draft changes to apply.'}
         >
-          {quickApplyAllMutation.isPending ? 'Applying all…' : 'Quick apply all'}
+          {quickApplyAllMutation.isPending ? 'Applying all…' : `Apply all buckets${quickApplicableCount ? ` (${quickApplicableCount})` : ''}`}
         </button>
       </div>
-      <div className="stack compact">
-        {drafts.map((draft) => (
-            <div key={draft.id} className="row-between">
-              <div>
-                <strong style={{ fontSize: '0.95rem' }}>{clothingItemLabel(draft.clothing_item)}</strong>
-                <p className="muted" style={{ fontSize: '0.85rem', margin: '0.2rem 0 0' }}>
-                  {draft.query} · {draft.region} · {draft.rationale}
-                </p>
-                <p className="muted" style={{ fontSize: '0.8rem', margin: '0.2rem 0 0' }}>
-                  Filters: {formatSearchFilters(withoutDraftPriceFilters(draft.filters))}
-                </p>
-              </div>
-              {(() => {
-                const existing = searches.find((search) => search.clothing_item === draft.clothing_item);
-                const selection = existing ? defaultDraftSelection(existing, draft) : null;
-                const quickApplicable = !!selection && (selection.fields.size > 0 || selection.filterGroups.size > 0);
-                return (
-                  <div className="button-row" style={{ flexShrink: 0 }}>
-                    <button
-                      className="secondary"
-                      onClick={() => {
-                        if (!existing || !selection) return;
-                        updateMutation.mutate({
-                          searchId: existing.id,
-                          payload: mergeDraftIntoSearch(existing, draft, selection.fields, selection.filterGroups),
-                        });
-                      }}
-                      disabled={searchesQuery.isLoading || !existing || !quickApplicable || updateMutation.isPending || quickApplyAllMutation.isPending}
-                      title={!existing ? 'Canonical search for this clothing bucket is missing.' : !quickApplicable ? 'No preselected changes to apply.' : 'Apply the same changes preselected in Compare & apply.'}
-                    >
-                      {updateMutation.isPending ? 'Applying…' : 'Quick apply'}
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setSelectedDraft(draft)}
-                      disabled={searchesQuery.isLoading || !existing || updateMutation.isPending || quickApplyAllMutation.isPending}
-                      title={existing ? undefined : 'Canonical search for this clothing bucket is missing.'}
-                    >
-                      Compare & apply
-                    </button>
-                  </div>
-                );
-              })()}
+      {drafts.length === 0 ? <p className="hint">No suggestion for this bucket.</p> : null}
+      {drafts.map((draft) => {
+        const existing = searches.find((search) => search.clothing_item === draft.clothing_item);
+        const selection = existing ? defaultDraftSelection(existing, draft) : null;
+        const quickApplicable = !!selection && (selection.fields.size > 0 || selection.filterGroups.size > 0);
+        return (
+          <div key={draft.id} className="draft-row">
+            <div className="stack" style={{ gap: 'var(--s1)' }}>
+              <p>Query <code>{draft.query}</code></p>
+              <p className="small muted">{formatSearchFilters(withoutDraftPriceFilters(draft.filters))}</p>
+              {draft.rationale ? <p className="small">{draft.rationale}</p> : null}
             </div>
-          ))}
-      </div>
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setSelectedDraft(draft)}
+                disabled={searchesQuery.isLoading || !existing || updateMutation.isPending || quickApplyAllMutation.isPending}
+                title={existing ? undefined : 'The saved search for this bucket is missing.'}
+              >
+                Compare
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  if (!existing || !selection) return;
+                  updateMutation.mutate({
+                    searchId: existing.id,
+                    payload: mergeDraftIntoSearch(existing, draft, selection.fields, selection.filterGroups),
+                  });
+                }}
+                disabled={searchesQuery.isLoading || !existing || !quickApplicable || updateMutation.isPending || quickApplyAllMutation.isPending}
+                title={!existing ? 'The saved search for this bucket is missing.' : !quickApplicable ? 'Already matches the saved search.' : 'Apply the changes preselected in Compare.'}
+              >
+                {updateMutation.isPending && !selectedDraft ? 'Applying…' : quickApplicable ? 'Apply' : 'Applied'}
+              </button>
+            </div>
+          </div>
+        );
+      })}
       <ErrorText error={searchesQuery.error} prefix="Searches failed to load" />
-      <ErrorText error={quickApplyAllMutation.error} prefix="Quick apply all failed" />
+      <ErrorText error={selectedDraft ? null : updateMutation.error} prefix="Apply failed" />
+      <ErrorText error={quickApplyAllMutation.error} prefix="Apply all failed" />
+      {quickApplyAllMutation.isSuccess ? (
+        <p className="success-text">Updated {quickApplyAllMutation.data} search{quickApplyAllMutation.data === 1 ? '' : 'es'}.</p>
+      ) : null}
       {selectedDraft && selectedSearch ? (
         <DraftCompareModal
           draft={selectedDraft}
@@ -1078,7 +1047,7 @@ function DraftSearches({
           error={updateMutation.error}
         />
       ) : null}
-    </article>
+    </div>
   );
 }
 
@@ -1129,7 +1098,7 @@ function BrandSearchInput({
   };
 
   return (
-    <div className="brand-search" ref={wrapperRef}>
+    <div className="combo" ref={wrapperRef}>
       <input
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
@@ -1142,22 +1111,28 @@ function BrandSearchInput({
           }
           if (e.key === 'Escape') setOpen(false);
         }}
-        placeholder="Search brands on Vinted…"
+        placeholder="Search Vinted brands to block…"
+        aria-label="Block a brand"
+        role="combobox"
+        aria-expanded={open && debouncedQuery.length >= 2}
+        aria-autocomplete="list"
       />
-      {open && debouncedQuery.length >= 2 && (
-        <div className="brand-search__suggestions">
+      {open && debouncedQuery.length >= 2 ? (
+        <div className="combo-list" role="listbox">
           {suggestionsQuery.isLoading ? (
-            <p className="brand-search__empty">Searching…</p>
+            <p className="combo-empty">Searching Vinted…</p>
           ) : suggestionsQuery.isError ? (
-            <p className="brand-search__empty">
-              Vinted brand lookup failed — {suggestionsQuery.error instanceof Error ? suggestionsQuery.error.message : String(suggestionsQuery.error)}
+            <p className="combo-empty">
+              Vinted brand lookup failed: {suggestionsQuery.error instanceof Error ? suggestionsQuery.error.message : String(suggestionsQuery.error)}
               {query.trim() ? ` Press Enter to block “${query.trim()}” anyway.` : ''}
             </p>
           ) : suggestions.length ? (
-            suggestions.map((option) => (
+            suggestions.map((option, index) => (
               <button
                 type="button"
-                className="brand-search__suggestion"
+                role="option"
+                aria-selected={index === 0}
+                className="combo-option"
                 key={option.id}
                 onMouseDown={(e) => { e.preventDefault(); pick(option.title); }}
               >
@@ -1165,94 +1140,34 @@ function BrandSearchInput({
               </button>
             ))
           ) : (
-            <p className="brand-search__empty">
-              No matching brand found on Vinted. Press Enter to block “{query.trim()}” anyway.
-            </p>
+            <p className="combo-empty">No brand by that name on Vinted. Press Enter to block “{query.trim()}” anyway.</p>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-function BlockedBrandsSection({
-  brands,
-  onAdd,
-  onRemove,
-  isSaving,
-  error,
-}: {
-  brands: string[];
-  onAdd: (title: string) => void;
-  onRemove: (title: string) => void;
-  isSaving: boolean;
-  error: unknown;
-}) {
-  return (
-    <TasteSection eyebrow="Filters" title="Blocked brands">
-      <article className="card">
-        <p className="muted" style={{ marginTop: 0 }}>
-          Offers from these brands are excluded before scoring — they're never fetched into candidates or sent to the AI judge.
-        </p>
-        <BrandSearchInput blockedBrands={brands} onAdd={onAdd} />
-        <div className="tag-row" style={{ marginTop: '1rem' }}>
-          {brands.length ? (
-            brands.map((brand) => (
-              <button
-                type="button"
-                className="token-chip"
-                key={brand}
-                onClick={() => onRemove(brand)}
-                disabled={isSaving}
-                title={`Unblock ${brand}`}
-              >
-                {brand} <span aria-hidden="true">×</span>
-              </button>
-            ))
-          ) : (
-            <p className="muted" style={{ fontSize: '0.88rem', margin: 0 }}>No brands blocked yet.</p>
-          )}
-        </div>
-        <ErrorText error={error} prefix="Blocked brands update failed" />
-      </article>
-    </TasteSection>
-  );
-}
+// ─── Profile helpers ───────────────────────────────────────────────────────────
 
-// ─── Section wrapper ──────────────────────────────────────────────────────────
-
-function TasteSection({
-  eyebrow,
-  title,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  children: React.ReactNode;
-}) {
+function ProfileList({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="taste-section">
-      <div className="taste-section__header">
-        <p className="eyebrow">{eyebrow}</p>
-        <h3>{title}</h3>
-      </div>
-      {children}
+    <div className="panel stack">
+      <h3>{title}</h3>
+      {items.length
+        ? <ul className="profile-list">{items.map((item, index) => <li key={index}>{item}</li>)}</ul>
+        : <p className="hint">None yet.</p>}
     </div>
   );
 }
 
-function ProfileHeading({ children }: { children: React.ReactNode }) {
-  return <h4 className="profile-heading">{children}</h4>;
-}
-
-function ProfileBullets({ items }: { items: string[] }) {
-  if (!items.length) return <p className="muted" style={{ fontSize: '0.88rem', margin: 0 }}>None yet.</p>;
-  return (
-    <ul className="profile-bullets">
-      {items.map((item, index) => <li key={index}>{item}</li>)}
-    </ul>
-  );
-}
+const SECTIONS = [
+  { id: 'wardrobe', label: 'Wardrobe' },
+  { id: 'listings', label: 'Rated listings' },
+  { id: 'note', label: 'Taste note' },
+  { id: 'brands', label: 'Blocked brands' },
+  { id: 'profile', label: 'Taste profile' },
+];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -1324,13 +1239,13 @@ export function MyTastePage() {
   });
 
   const updateSampleMutation = useMutation({
-    mutationFn: ({ sampleId, note, clothingItem, kind }: { sampleId: string; note: string; clothingItem: ClothingItem; kind?: 'offer_like' | 'offer_dislike' }) =>
+    mutationFn: ({ sampleId, note, clothingItem, kind }: { sampleId: string; note: string; clothingItem: ClothingItem; kind?: OfferKind }) =>
       api.updateTasteSample(sampleId, { note, clothing_item: clothingItem, ...(kind ? { kind } : {}) }),
     onSuccess: invalidate,
   });
   const deleteSampleMutation = useMutation({ mutationFn: api.deleteTasteSample, onSuccess: invalidate });
   const addOfferMutation = useMutation({
-    mutationFn: (payload: { vinted_url: string; kind: 'offer_like' | 'offer_dislike'; clothing_item: ClothingItem; note: string }) =>
+    mutationFn: (payload: { vinted_url: string; kind: OfferKind; clothing_item: ClothingItem; note: string }) =>
       api.addTasteOffer(payload),
     onSuccess: invalidate,
   });
@@ -1383,8 +1298,10 @@ export function MyTastePage() {
     return Object.fromEntries(entries) as Record<ClothingItem, TasteSample[]>;
   }, [grouped.wardrobe]);
 
-  if (tasteQuery.isLoading) return <p>Loading taste…</p>;
-  if (tasteQuery.isError || !tasteQuery.data) return <ErrorText error={tasteQuery.error ?? 'Could not load taste.'} />;
+  if (tasteQuery.isLoading) return <div className="page"><PageHeader title="My Taste" /><Loading label="Loading taste…" /></div>;
+  if (tasteQuery.isError || !tasteQuery.data) {
+    return <div className="page"><PageHeader title="My Taste" /><ErrorText error={tasteQuery.error ?? 'Could not load taste.'} /></div>;
+  }
 
   const taste = tasteQuery.data;
   const profile = taste.taste_profile;
@@ -1392,10 +1309,6 @@ export function MyTastePage() {
   // Item-specific only: a tab without its own profile shows empties rather than
   // leaking global / other-bucket signals as if they were item-specific.
   const selectedRubric = Object.entries(selectedItemProfile?.scoring_rubric ?? {});
-  const selectedLikes = selectedItemProfile?.likes ?? [];
-  const selectedDislikes = selectedItemProfile?.dislikes_or_penalties ?? [];
-  const selectedAlertExamples = selectedItemProfile?.instant_alert_examples ?? [];
-  const selectedRejectExamples = selectedItemProfile?.instant_reject_examples ?? [];
   const selectedDrafts = selectedItemProfile?.generated_search
     ? [selectedItemProfile.generated_search]
     : (profile?.generated_searches?.filter((draft) => draft.clothing_item === selectedProfileItem) ?? []);
@@ -1408,40 +1321,52 @@ export function MyTastePage() {
   // (only meaningful once a recompute has actually run).
   const displayCost = lastCost ?? (taste.last_recomputed_at ? recomputeState?.last_cost_usd ?? null : null);
   const recomputeConflict = recomputeMutation.error instanceof ApiError && recomputeMutation.error.status === 409;
+  const dirty = taste.dirty_counts;
+  const changed = dirty.new_or_changed_samples > 0 || dirty.manual_note_changed;
+
+  const deleteSample = (id: string) => deleteSampleMutation.mutateAsync(id).then(() => undefined);
+  const updateSample = (id: string, note: string, clothingItem: ClothingItem, kind?: OfferKind) =>
+    updateSampleMutation.mutateAsync({ sampleId: id, note, clothingItem, kind }).then(() => undefined);
 
   return (
-    <section>
-      {/* Page header */}
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">My taste</p>
-          <h2>Clothes I like</h2>
-        </div>
-        <div className="button-row">
-          <button onClick={() => recomputeMutation.mutate()} disabled={recomputeBusy}>
-            {recomputeBusy ? 'Recomputing…' : 'Recompute taste profile'}
-          </button>
-          {recomputeRunning ? (
+    <div className="page">
+      <PageHeader
+        title="My Taste"
+        sub="Wardrobe photos, rated listings and your note train the profile the judge scores against. Recompute after changing them."
+        actions={(
+          <>
+            {recomputeRunning ? (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => cancelRecomputeMutation.mutate()}
+                disabled={cancelRecomputeMutation.isPending}
+              >
+                {cancelRecomputeMutation.isPending ? 'Cancelling…' : 'Cancel'}
+              </button>
+            ) : null}
             <button
-              className="secondary"
-              onClick={() => cancelRecomputeMutation.mutate()}
-              disabled={cancelRecomputeMutation.isPending}
+              type="button"
+              className={`btn${changed || !profile ? ' btn-primary' : ''}`}
+              onClick={() => recomputeMutation.mutate()}
+              disabled={recomputeBusy}
             >
-              {cancelRecomputeMutation.isPending ? 'Cancelling…' : 'Cancel'}
+              <RefreshCw size={15} aria-hidden="true" />
+              {recomputeBusy ? 'Recomputing…' : 'Recompute profile'}
             </button>
-          ) : null}
-        </div>
-      </div>
+          </>
+        )}
+      />
+
       {/* While a recompute is running (incl. one the server kept going after a client-side
-          request failure), show only the running banner — a stale client error or 409 here
+          request failure), show only the running notice — a stale client error or 409 here
           would falsely read as "failed". Cancel only force-clears the DB claim (see
           cancel_recompute docstring) — if the stuck call is still alive server-side it can still
           take a while to actually stop, but the button unblocks a fresh attempt immediately. */}
       {recomputeRunning ? (
-        <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
-          A recompute is running… this view updates automatically when it finishes. Stuck for a
-          while? Cancel it and try again.
-        </p>
+        <div className="notice notice-accent" role="status">
+          Recomputing. This page updates when it finishes. Stuck for a long time? Cancel and try again.
+        </div>
       ) : recomputeConflict ? (
         <ErrorText error="A recompute is already running." prefix="Recompute failed" />
       ) : recomputeMutation.error ? (
@@ -1451,290 +1376,293 @@ export function MyTastePage() {
       ) : recomputeState?.status === 'failed' ? (
         <ErrorText error={recomputeState.error ?? 'Last recompute failed.'} prefix="Recompute failed" />
       ) : recomputeState?.status === 'cancelled' ? (
-        <p className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>Last recompute was cancelled.</p>
+        <div className="notice">The last recompute was cancelled.</div>
       ) : null}
 
-      {/* Stats row */}
-      <div className="card-grid" style={{ marginBottom: '2.5rem' }}>
-        <article className="card stat-card">
-          <span>Last update</span>
-          <strong style={{ fontSize: '1rem' }}>
-            {formatBerlinDateTime(taste.last_recomputed_at, 'never')}
-          </strong>
-        </article>
-        <article className="card stat-card">
-          <span>Changed samples</span>
-          <strong>{taste.dirty_counts.new_or_changed_samples}</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Pos / Neg changed</span>
-          <strong>
-            {taste.dirty_counts.new_or_changed_positive_samples} / {taste.dirty_counts.new_or_changed_negative_samples}
-          </strong>
-        </article>
-        <article className="card stat-card">
-          <span>Last recompute cost</span>
-          <strong>{displayCost === null ? 'n/a' : fmtUsd(displayCost)}</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Image observations</span>
-          <strong style={{ fontSize: '1rem' }}>
-            {lastObservationCache
-              ? `${lastObservationCache.cached_observations} cached / ${lastObservationCache.fresh_observations} fresh`
-              : 'n/a'}
-          </strong>
-          {lastObservationCache && (
-            <span className="muted" style={{ fontSize: '0.78rem' }}>
-              {lastObservationCache.observation_model || 'n/a'} · {lastObservationCache.total_image_inputs} images
-            </span>
-          )}
-        </article>
+      <div className="stats">
+        <Stat label="Last recompute" value={formatBerlinDateTime(taste.last_recomputed_at, 'Never')} />
+        <Stat
+          label="Changed since"
+          value={dirty.new_or_changed_samples}
+          note={`${dirty.new_or_changed_positive_samples} positive · ${dirty.new_or_changed_negative_samples} negative${dirty.manual_note_changed ? ' · note edited' : ''}`}
+          tone={changed ? 'warn' : undefined}
+        />
+        <Stat label="Last cost" value={displayCost === null ? '–' : fmtUsd(displayCost)} />
+        <Stat
+          label="Image observations"
+          value={lastObservationCache
+            ? `${lastObservationCache.cached_observations} cached · ${lastObservationCache.fresh_observations} new`
+            : '–'}
+          note={lastObservationCache
+            ? `${lastObservationCache.total_image_inputs} images · ${lastObservationCache.observation_model || 'n/a'}`
+            : 'Shown after a recompute in this tab'}
+        />
       </div>
 
-      {/* Wardrobe */}
-      <TasteSection eyebrow="Reference" title="My wardrobe">
-        <div className="button-row" style={{ marginBottom: '1rem' }}>
-          <input
-            ref={zipInputRef}
-            type="file"
-            accept=".zip"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) zipImportMutation.mutate(f);
-              e.target.value = '';
-            }}
-          />
-          <button
-            className="secondary"
-            onClick={() => zipInputRef.current?.click()}
-            disabled={zipImportMutation.isPending}
-          >
-            {zipImportMutation.isPending ? 'Importing…' : 'Import ZIP'}
-          </button>
-          {zipImportNotice && <span className="muted" style={{ fontSize: '0.85rem' }}>{zipImportNotice}</span>}
-          <ErrorText error={zipImportMutation.error} prefix="Import failed" />
-        </div>
-        <div className="stack">
-          {clothingItems.map((item) => (
-            <article className="card" key={item.value}>
-              <div className="row-between" style={{ marginBottom: '0.75rem' }}>
-                <div>
-                  <h4 style={{ margin: 0 }}>{item.label}</h4>
-                  <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.84rem' }}>{item.description}</p>
-                </div>
-                <span className="pill">{wardrobeByItem[item.value].length}</span>
-              </div>
-              <ImageGrid
-                samples={wardrobeByItem[item.value]}
-                onAdd={() => { setUploadTargetItem(item.value); setUploadOpen(true); }}
-                onDelete={(id) => deleteSampleMutation.mutateAsync(id).then(() => undefined)}
-                onUpdate={(id, note, clothingItem) =>
-                  updateSampleMutation.mutateAsync({ sampleId: id, note, clothingItem }).then(() => undefined)}
-              />
-            </article>
-          ))}
-        </div>
-      </TasteSection>
+      <div className="taste-layout">
+        <nav className="toc" aria-label="On this page">
+          {SECTIONS.map((section) => <a key={section.id} href={`#${section.id}`}>{section.label}</a>)}
+        </nav>
 
-      {/* Taste note */}
-      <TasteSection eyebrow="Instructions" title="Taste note">
-        <article className="card">
-          <textarea
-            value={manualNote}
-            onChange={(e) => { setManualNoteDirty(true); setManualNote(e.target.value); }}
-            rows={6}
-            placeholder="Describe your style, what you look for, what to avoid…"
-          />
-          <div className="button-row" style={{ marginTop: '1rem' }}>
-            <button
-              onClick={() => manualNoteMutation.mutate(manualNote)}
-              disabled={manualNoteMutation.isPending}
-            >
-              {manualNoteMutation.isPending ? 'Saving…' : 'Save note'}
-            </button>
-            {taste.dirty_counts.manual_note_changed && (
-              <span className="muted" style={{ fontSize: '0.85rem' }}>Changed since last recompute</span>
+        <div className="stack-lg" style={{ gap: 'var(--s6)' }}>
+          <Section
+            id="wardrobe"
+            title="Wardrobe"
+            sub="Photos of clothes you own and like, per bucket."
+            actions={(
+              <>
+                <input
+                  ref={zipInputRef}
+                  type="file"
+                  accept=".zip"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) zipImportMutation.mutate(f);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => zipInputRef.current?.click()}
+                  disabled={zipImportMutation.isPending}
+                  title="A ZIP with one folder per bucket"
+                >
+                  <Upload size={14} aria-hidden="true" />
+                  {zipImportMutation.isPending ? 'Importing…' : 'Import ZIP'}
+                </button>
+              </>
             )}
-          </div>
-          <ErrorText error={manualNoteMutation.error} prefix="Save failed" />
-        </article>
-      </TasteSection>
-
-      {/* Blocked brands */}
-      <BlockedBrandsSection
-        brands={blockedBrandsQuery.data?.brands ?? []}
-        isSaving={updateBlockedBrandsMutation.isPending}
-        error={blockedBrandsQuery.error ?? updateBlockedBrandsMutation.error}
-        onAdd={(title) => {
-          const current = blockedBrandsQuery.data?.brands ?? [];
-          if (current.some((brand) => brand.toLowerCase() === title.toLowerCase())) return;
-          updateBlockedBrandsMutation.mutate([...current, title]);
-        }}
-        onRemove={(title) => {
-          const current = blockedBrandsQuery.data?.brands ?? [];
-          updateBlockedBrandsMutation.mutate(current.filter((brand) => brand !== title));
-        }}
-      />
-
-      {/* Offer feedback */}
-      <TasteSection eyebrow="Training data" title="Offer feedback">
-        <div className="button-row" style={{ marginBottom: '1rem' }}>
-          <button className="secondary" onClick={() => setOfferOpen(true)}>Add by URL</button>
-        </div>
-        <ErrorText error={addOfferMutation.error} prefix="Add offer failed" />
-        <div className="stack">
-          <article className="card">
-            <div className="feedback-col-header feedback-col-header--liked">
-              <span>Liked</span>
-              <span className="feedback-col-count">{grouped.liked.length}</span>
-            </div>
-            <ImageGrid
-              samples={grouped.liked}
-              onDelete={(id) => deleteSampleMutation.mutateAsync(id).then(() => undefined)}
-              onUpdate={(id, note, clothingItem, kind) =>
-                updateSampleMutation.mutateAsync({ sampleId: id, note, clothingItem, kind }).then(() => undefined)}
-            />
-          </article>
-          <article className="card">
-            <div className="feedback-col-header feedback-col-header--disliked">
-              <span>Disliked</span>
-              <span className="feedback-col-count">{grouped.disliked.length}</span>
-            </div>
-            <ImageGrid
-              samples={grouped.disliked}
-              onDelete={(id) => deleteSampleMutation.mutateAsync(id).then(() => undefined)}
-              onUpdate={(id, note, clothingItem, kind) =>
-                updateSampleMutation.mutateAsync({ sampleId: id, note, clothingItem, kind }).then(() => undefined)}
-            />
-          </article>
-          <article className="card">
-            <div className="feedback-col-header">
-              <span>Noted</span>
-              <span className="feedback-col-count">{grouped.noted.length}</span>
-            </div>
-            <ImageGrid
-              samples={grouped.noted}
-              onDelete={(id) => deleteSampleMutation.mutateAsync(id).then(() => undefined)}
-              onUpdate={(id, note, clothingItem) =>
-                updateSampleMutation.mutateAsync({ sampleId: id, note, clothingItem }).then(() => undefined)}
-            />
-          </article>
-        </div>
-      </TasteSection>
-      <ErrorText error={deleteSampleMutation.error ?? updateSampleMutation.error} prefix="Sample update failed" />
-
-      {/* Taste profile */}
-      <TasteSection eyebrow="AI output" title="Taste profile">
-        <article className="card">
-          <p style={{ margin: 0 }}>{profile?.summary ?? 'No taste profile generated yet.'}</p>
-          <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.6rem' }}>
-            Version {profile?.version ?? 0} · model {profile?.model ?? 'n/a'} · reasoning {profile?.reasoning_effort ?? 'n/a'}
-          </p>
-        </article>
-        <div className="tabs" style={{ marginTop: '1rem' }}>
-          {clothingItems.map((item) => (
-            <button
-              key={item.value}
-              className={selectedProfileItem === item.value ? 'active' : ''}
-              onClick={() => setSelectedProfileItem(item.value)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <DraftSearches
-          drafts={selectedDrafts}
-          allDrafts={allDrafts}
-          itemProfile={selectedItemProfile}
-          learningSnapshot={taste.latest_learning_snapshot}
-        />
-        {(selectedItemProfile?.taste_prompt || profile?.taste_prompt) && (
-          <article className="card" style={{ marginTop: '1rem' }}>
-            <details className="details-block" style={{ marginTop: 0, paddingTop: 0, borderTop: 0 }}>
-              <summary>{clothingItemLabel(selectedProfileItem)} judgment prompt</summary>
-              <p style={{ whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.65, margin: '0.75rem 0 0' }}>
-                {selectedItemProfile?.taste_prompt ?? profile?.taste_prompt}
-              </p>
-            </details>
-            {selectedItemProfile?.cross_item_influence?.length ? (
-              <div className="tag-row" style={{ marginTop: '1rem' }}>
-                {selectedItemProfile.cross_item_influence.map((item) => (
-                  <span className="tag subtle" key={item}>{item}</span>
-                ))}
-              </div>
-            ) : null}
-          </article>
-        )}
-        {judgmentPromptQuery.data && (
-          <article className="card" style={{ marginTop: '1rem' }}>
-            <details className="details-block" style={{ marginTop: 0, paddingTop: 0, borderTop: 0 }}>
-              <summary>Full VLM judgment prompt (v{judgmentPromptQuery.data.profile_version})</summary>
-              <p className="muted" style={{ fontSize: '0.82rem', margin: '0.75rem 0 0' }}>
-                {judgmentPromptQuery.data.character_count.toLocaleString()} characters ·{' '}
-                {judgmentPromptQuery.data.token_count.toLocaleString()} tokens ({judgmentPromptQuery.data.tokenizer})
-              </p>
-              <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', lineHeight: 1.55, margin: '0.75rem 0 0', maxHeight: '40rem', overflow: 'auto', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '0.75rem', borderRadius: '6px' }}>
-                {judgmentPromptQuery.data.prompt}
-              </pre>
-            </details>
-          </article>
-        )}
-        {selectedItemProfile?.summary && (
-          <article className="card" style={{ marginTop: '1rem' }}>
-            <ProfileHeading>{clothingItemLabel(selectedProfileItem)} summary</ProfileHeading>
-            <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: 1.6 }}>{selectedItemProfile.summary}</p>
-          </article>
-        )}
-        {selectedRubric.length > 0 && (
-          <article className="card" style={{ marginTop: '1rem' }}>
-            <ProfileHeading>Scoring rubric</ProfileHeading>
-            <dl className="rubric-list">
-              {selectedRubric.map(([band, description]) => (
-                <div className="rubric-list__row" key={band}>
-                  <dt>{band}</dt>
-                  <dd>{description}</dd>
+          >
+            {zipImportNotice ? <p className="success-text">{zipImportNotice}</p> : null}
+            <ErrorText error={zipImportMutation.error} prefix="Import failed" />
+            <div className="bucket-list">
+              {clothingItems.map((item) => (
+                <div className="bucket" key={item.value}>
+                  <div>
+                    <h3>{item.label} <span className="faint">{wardrobeByItem[item.value].length}</span></h3>
+                    <p>{item.description}</p>
+                  </div>
+                  <ImageGrid
+                    samples={wardrobeByItem[item.value]}
+                    onAdd={() => { setUploadTargetItem(item.value); setUploadOpen(true); }}
+                    addLabel={`Add ${item.label} photos`}
+                    onDelete={deleteSample}
+                    onUpdate={(id, note, clothingItem) => updateSample(id, note, clothingItem)}
+                  />
                 </div>
               ))}
-            </dl>
-          </article>
-        )}
-        <div className="card-grid two-up" style={{ marginTop: '1rem' }}>
-          <article className="card">
-            <ProfileHeading>Likes</ProfileHeading>
-            <ProfileBullets items={selectedLikes} />
-          </article>
-          <article className="card">
-            <ProfileHeading>Dislikes / penalties</ProfileHeading>
-            <ProfileBullets items={selectedDislikes} />
-          </article>
-        </div>
-        <div className="card-grid two-up" style={{ marginTop: '1rem' }}>
-          <article className="card">
-            <ProfileHeading>Instant alert examples</ProfileHeading>
-            <ProfileBullets items={selectedAlertExamples} />
-          </article>
-          <article className="card">
-            <ProfileHeading>Instant reject examples</ProfileHeading>
-            <ProfileBullets items={selectedRejectExamples} />
-          </article>
-        </div>
-      </TasteSection>
+            </div>
+          </Section>
 
-      {/* Upload modal */}
-      {uploadOpen && (
+          <Section
+            id="listings"
+            title="Rated listings"
+            sub="Vinted listings you liked or disliked, here or with the Telegram buttons."
+            actions={(
+              <button type="button" className="btn btn-sm" onClick={() => setOfferOpen(true)}>
+                <Link2 size={14} aria-hidden="true" />
+                Add by URL
+              </button>
+            )}
+          >
+            <div className="offer-cols">
+              <div className="panel offer-col">
+                <h3><ThumbsUp size={15} className="tone-ok" aria-hidden="true" /> Liked <span className="faint">{grouped.liked.length}</span></h3>
+                <ImageGrid samples={grouped.liked} emptyLabel="No liked listings yet." onDelete={deleteSample} onUpdate={updateSample} />
+              </div>
+              <div className="panel offer-col">
+                <h3><ThumbsDown size={15} className="tone-bad" aria-hidden="true" /> Disliked <span className="faint">{grouped.disliked.length}</span></h3>
+                <ImageGrid samples={grouped.disliked} emptyLabel="No disliked listings yet." onDelete={deleteSample} onUpdate={updateSample} />
+              </div>
+              {grouped.noted.length ? (
+                <div className="panel offer-col">
+                  <h3>Comment only <span className="faint">{grouped.noted.length}</span></h3>
+                  <ImageGrid
+                    samples={grouped.noted}
+                    onDelete={deleteSample}
+                    onUpdate={(id, note, clothingItem) => updateSample(id, note, clothingItem)}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </Section>
+          <ErrorText error={deleteSampleMutation.error ?? updateSampleMutation.error} prefix="Sample update failed" />
+
+          <Section id="note" title="Taste note" sub="Your own words about style, fit and what to avoid. The recompute reads it alongside the photos.">
+            <div className="stack">
+              <textarea
+                value={manualNote}
+                onChange={(e) => { setManualNoteDirty(true); setManualNote(e.target.value); }}
+                rows={6}
+                placeholder="Baggy workwear and 90s outdoor pieces. No slim fits, no fast fashion logos…"
+                aria-label="Taste note"
+              />
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => manualNoteMutation.mutate(manualNote)}
+                  disabled={manualNoteMutation.isPending || !noteDirty}
+                >
+                  {manualNoteMutation.isPending ? 'Saving…' : 'Save note'}
+                </button>
+                {noteDirty ? <span className="hint">Unsaved changes</span> : null}
+                {!noteDirty && dirty.manual_note_changed ? <span className="hint">Saved. Not in the profile until the next recompute.</span> : null}
+              </div>
+              <ErrorText error={manualNoteMutation.error} prefix="Save failed" />
+            </div>
+          </Section>
+
+          <Section
+            id="brands"
+            title="Blocked brands"
+            sub="Listings from these brands are dropped before judging, so they cost nothing and never alert."
+          >
+            <div className="stack">
+              <BrandSearchInput
+                blockedBrands={blockedBrandsQuery.data?.brands ?? []}
+                onAdd={(title) => {
+                  const current = blockedBrandsQuery.data?.brands ?? [];
+                  if (current.some((brand) => brand.toLowerCase() === title.toLowerCase())) return;
+                  updateBlockedBrandsMutation.mutate([...current, title]);
+                }}
+              />
+              {blockedBrandsQuery.data?.brands.length ? (
+                <div className="chips">
+                  {blockedBrandsQuery.data.brands.map((brand) => (
+                    <button
+                      type="button"
+                      className="chip"
+                      key={brand}
+                      onClick={() => {
+                        const current = blockedBrandsQuery.data?.brands ?? [];
+                        updateBlockedBrandsMutation.mutate(current.filter((b) => b !== brand));
+                      }}
+                      disabled={updateBlockedBrandsMutation.isPending}
+                      title={`Unblock ${brand}`}
+                    >
+                      {brand} <span className="chip-x" aria-hidden="true">×</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="hint">{blockedBrandsQuery.isLoading ? 'Loading…' : 'No brands blocked.'}</p>
+              )}
+              <ErrorText error={blockedBrandsQuery.error ?? updateBlockedBrandsMutation.error} prefix="Blocked brands update failed" />
+            </div>
+          </Section>
+
+          <Section
+            id="profile"
+            title="Taste profile"
+            sub={profile
+              ? `Version ${profile.version} · ${profile.model ?? 'unknown model'}${profile.reasoning_effort ? ` · ${profile.reasoning_effort} reasoning` : ''}${profile.generated_at ? ` · ${formatBerlinDateTime(profile.generated_at)}` : ''}`
+              : undefined}
+          >
+            {!profile ? (
+              <Empty title="No taste profile yet">
+                Add wardrobe photos or rated listings, then recompute.
+              </Empty>
+            ) : (
+              <div className="stack-lg">
+                <p className="prose">{profile.summary}</p>
+
+                <div className="seg seg-scroll" role="group" aria-label="Clothing bucket">
+                  {clothingItems.map((item) => (
+                    <button
+                      key={item.value}
+                      type="button"
+                      aria-pressed={selectedProfileItem === item.value}
+                      onClick={() => setSelectedProfileItem(item.value)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                {selectedItemProfile?.summary ? <p className="prose">{selectedItemProfile.summary}</p> : null}
+
+                <DraftSearches
+                  drafts={selectedDrafts}
+                  allDrafts={allDrafts}
+                  itemProfile={selectedItemProfile}
+                  learningSnapshot={taste.latest_learning_snapshot}
+                />
+
+                <div className="profile-grid">
+                  <ProfileList title="Likes" items={selectedItemProfile?.likes ?? []} />
+                  <ProfileList title="Dislikes and penalties" items={selectedItemProfile?.dislikes_or_penalties ?? []} />
+                  <ProfileList title="Instant alert examples" items={selectedItemProfile?.instant_alert_examples ?? []} />
+                  <ProfileList title="Instant reject examples" items={selectedItemProfile?.instant_reject_examples ?? []} />
+                </div>
+
+                {selectedRubric.length > 0 ? (
+                  <div className="panel stack">
+                    <h3>Scoring rubric</h3>
+                    <dl className="kv">
+                      {selectedRubric.map(([band, description]) => (
+                        <div key={band} style={{ display: 'contents' }}>
+                          <dt className="num">{band}</dt>
+                          <dd>{description}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ) : null}
+
+                {selectedItemProfile?.cross_item_influence?.length ? (
+                  <div className="stack" style={{ gap: 'var(--s2)' }}>
+                    <span className="hint">Influenced by other buckets</span>
+                    <div className="chips">
+                      {selectedItemProfile.cross_item_influence.map((item) => <span className="chip" key={item}>{item}</span>)}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="stack">
+                  {selectedItemProfile?.taste_prompt || profile.taste_prompt ? (
+                    <details className="disclosure">
+                      <summary>{clothingItemLabel(selectedProfileItem)} taste prompt</summary>
+                      <div className="disclosure-body">
+                        <pre className="pre">{selectedItemProfile?.taste_prompt ?? profile.taste_prompt}</pre>
+                      </div>
+                    </details>
+                  ) : null}
+                  {judgmentPromptQuery.data ? (
+                    <details className="disclosure">
+                      <summary>Full judge prompt (v{judgmentPromptQuery.data.profile_version})</summary>
+                      <div className="disclosure-body stack">
+                        <p className="hint">
+                          {judgmentPromptQuery.data.character_count.toLocaleString()} characters ·{' '}
+                          {judgmentPromptQuery.data.token_count.toLocaleString()} tokens ({judgmentPromptQuery.data.tokenizer})
+                        </p>
+                        <pre className="pre">{judgmentPromptQuery.data.prompt}</pre>
+                      </div>
+                    </details>
+                  ) : null}
+                  <ErrorText error={judgmentPromptQuery.error} prefix="Judge prompt failed to load" />
+                </div>
+              </div>
+            )}
+          </Section>
+        </div>
+      </div>
+
+      {uploadOpen ? (
         <UploadModal
           onClose={() => setUploadOpen(false)}
           onUploadFile={(file, note) => uploadMutation.mutateAsync({ file, note, clothingItem: uploadTargetItem })}
           clothingItem={uploadTargetItem}
         />
-      )}
-      {offerOpen && (
+      ) : null}
+      {offerOpen ? (
         <AddOfferModal
           onClose={() => setOfferOpen(false)}
           onSubmit={(payload) => addOfferMutation.mutateAsync(payload)}
         />
-      )}
-    </section>
+      ) : null}
+    </div>
   );
 }

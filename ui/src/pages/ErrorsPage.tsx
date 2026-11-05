@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 import { ErrorText } from '../components/ErrorText';
+import { Badge, Empty, Loading, PageHeader, type Tone } from '../components/ui';
 import { api } from '../lib/api';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
@@ -33,54 +34,54 @@ function notificationLabel(status: ErrorTelegramNotificationStatus): string {
   return 'Failed';
 }
 
-function notificationClass(status: ErrorTelegramNotificationStatus): string {
-  if (status === 'sent') return 'healthy';
-  if (status === 'failed') return 'missing';
-  if (status === 'pending' || status === 'processing') return 'warning';
-  return '';
+function notificationTone(status: ErrorTelegramNotificationStatus): Tone {
+  if (status === 'sent') return 'ok';
+  if (status === 'failed') return 'bad';
+  if (status === 'pending' || status === 'processing') return 'accent';
+  return 'neutral';
 }
+
+const SOURCE_LABEL = Object.fromEntries(SOURCES.map((source) => [source.value, source.label]));
 
 function ErrorEntry({ event }: { event: ErrorEventRecord }) {
   const hasDetails = Object.keys(event.details).length > 0;
   return (
-    <article className="card error-event">
-      <div className="error-event__header">
-        <div>
-          <div className="tag-row">
-            <span className="pill missing">{event.source.replace('_', ' ')}</span>
-            <span className="pill">{event.operation}</span>
-            <span className={`pill ${notificationClass(event.telegram_notification_status)}`}>
-              Telegram: {notificationLabel(event.telegram_notification_status)}
-            </span>
-          </div>
-          <h3>{event.summary}</h3>
+    <article className="error-item">
+      <div className="row-between">
+        <div className="row">
+          <Badge tone="bad">{SOURCE_LABEL[event.source] ?? event.source}</Badge>
+          <span className="small muted">{event.operation}</span>
         </div>
-        <time className="muted" dateTime={event.occurred_at}>
+        <time className="small muted" dateTime={event.occurred_at}>
           {formatBerlinDateTime(event.occurred_at, event.occurred_at)}
         </time>
       </div>
-
-      <p className="error-event__message">{event.message}</p>
-
-      <div className="error-event__meta muted">
+      <h3>{event.summary}</h3>
+      <p className="error-msg">{event.message}</p>
+      <div className="error-meta">
         <span>#{event.id}</span>
         {event.exception_type ? <span>{event.exception_type}</span> : null}
         {event.related_entity_type && event.related_entity_id ? (
           <span>{event.related_entity_type}: {event.related_entity_id}</span>
         ) : null}
-        {event.telegram_notification_attempt_count > 0 ? (
-          <span>{event.telegram_notification_attempt_count} Telegram attempt{event.telegram_notification_attempt_count === 1 ? '' : 's'}</span>
+        {event.telegram_notification_status !== 'not_requested' ? (
+          <span className="status">
+            <Badge tone={notificationTone(event.telegram_notification_status)}>Telegram {notificationLabel(event.telegram_notification_status).toLowerCase()}</Badge>
+            {event.telegram_notification_attempt_count > 0
+              ? `${event.telegram_notification_attempt_count} attempt${event.telegram_notification_attempt_count === 1 ? '' : 's'}`
+              : null}
+          </span>
         ) : null}
       </div>
-
       {event.telegram_notification_last_error ? (
-        <p className="error-text">Telegram notification failed: {event.telegram_notification_last_error}</p>
+        <ErrorText error={event.telegram_notification_last_error} prefix="Telegram notification failed" />
       ) : null}
-
       {hasDetails ? (
-        <details className="details-block">
+        <details className="disclosure">
           <summary>Technical details</summary>
-          <pre className="error-event__details">{JSON.stringify(event.details, null, 2)}</pre>
+          <div className="disclosure-body">
+            <pre className="pre">{JSON.stringify(event.details, null, 2)}</pre>
+          </div>
         </details>
       ) : null}
     </article>
@@ -130,70 +131,70 @@ export function ErrorsPage() {
     if (errorsQuery.data && page >= totalPages) setPage(totalPages - 1);
   }, [errorsQuery.data, page, totalPages]);
 
-  return (
-    <section>
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Operational log</p>
-          <h2>Errors</h2>
-          <p className="muted">Terminal failures from searches, integrations, deliveries, API requests, and worker jobs.</p>
-        </div>
-      </div>
+  const notificationsEnabled = errorsQuery.data?.telegram_notifications_enabled ?? false;
+  const canEnable = !!errorsQuery.data && (errorsQuery.data.telegram_configured || notificationsEnabled);
 
-      <article className="card error-notification-setting">
+  return (
+    <div className="page">
+      <PageHeader
+        title="Errors"
+        sub="Failures from scans, judging, recomputes, Telegram, API requests and the worker. Each is recorded once, after retries."
+      />
+
+      <div className="panel toggle-row">
         <div>
-          <h3>Telegram error notifications</h3>
-          <p className="muted">
-            Send each new error to the configured Telegram chat. Delivery is retried three times without creating recursive errors.
+          <h3>Send errors to Telegram</h3>
+          <p className="section-sub">
+            {errorsQuery.data && !errorsQuery.data.telegram_configured
+              ? 'Set a bot token and chat ID in Settings first.'
+              : 'Each new error goes to the alert chat. Delivery is retried three times.'}
           </p>
-          {errorsQuery.data && !errorsQuery.data.telegram_configured ? (
-            <p className="text-warning">Configure a Telegram bot token and chat ID in Settings before enabling this.</p>
-          ) : null}
         </div>
-        <label className="checkbox-label">
+        <label className="switch">
           <input
             type="checkbox"
-            checked={errorsQuery.data?.telegram_notifications_enabled ?? false}
-            disabled={
-              toggleMutation.isPending
-              || !errorsQuery.data
-              || (!errorsQuery.data.telegram_configured && !errorsQuery.data.telegram_notifications_enabled)
-            }
+            checked={notificationsEnabled}
+            disabled={toggleMutation.isPending || !canEnable}
             onChange={(event) => toggleMutation.mutate(event.target.checked)}
           />
-          <span>{errorsQuery.data?.telegram_notifications_enabled ? 'Enabled' : 'Disabled'}</span>
+          <span className="switch-track" aria-hidden="true" />
+          {notificationsEnabled ? 'On' : 'Off'}
         </label>
-      </article>
+      </div>
       <ErrorText error={toggleMutation.error} prefix="Could not update Telegram error notifications" />
 
-      <div className="error-toolbar">
-        <label>
-          Source
-          <select value={source} onChange={(event) => setFilter(event.target.value)}>
-            {SOURCES.map((option) => (
-              <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </label>
-        <span className="muted">{total} error{total === 1 ? '' : 's'}</span>
-      </div>
+      <div className="stack">
+        <div className="toolbar">
+          <label className="field-inline">
+            <span className="visually-hidden">Source</span>
+            <select value={source} onChange={(event) => setFilter(event.target.value)}>
+              {SOURCES.map((option) => (
+                <option key={option.value || 'all'} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <span className="small muted">{total} error{total === 1 ? '' : 's'}</span>
+        </div>
 
-      {errorsQuery.isLoading ? <p>Loading errors...</p> : null}
-      {errorsQuery.isError ? <ErrorText error={errorsQuery.error} prefix="Could not load errors" /> : null}
-      {errorsQuery.data?.items.length === 0 ? (
-        <div className="card"><p className="muted">No matching operational errors have been recorded.</p></div>
-      ) : null}
-      <div className="error-event-list">
-        {errorsQuery.data?.items.map((event) => <ErrorEntry event={event} key={event.id} />)}
+        {errorsQuery.isLoading ? <Loading label="Loading errors…" /> : null}
+        {errorsQuery.isError ? <ErrorText error={errorsQuery.error} prefix="Could not load errors" /> : null}
+        {errorsQuery.data?.items.length === 0 ? (
+          <Empty title={source ? 'No errors from this source' : 'No errors recorded'} />
+        ) : null}
+        {errorsQuery.data?.items.length ? (
+          <div className="error-list">
+            {errorsQuery.data.items.map((event) => <ErrorEntry event={event} key={event.id} />)}
+          </div>
+        ) : null}
       </div>
 
       {errorsQuery.data && totalPages > 1 ? (
-        <div className="button-row pagination-row">
-          <button className="secondary" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
-          <span className="muted">Page {page + 1} of {totalPages}</span>
-          <button className="secondary" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>Next</button>
-        </div>
+        <nav className="pager" aria-label="Pages">
+          <button type="button" className="btn btn-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>Newer</button>
+          <span>Page {page + 1} of {totalPages}</span>
+          <button type="button" className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>Older</button>
+        </nav>
       ) : null}
-    </section>
+    </div>
   );
 }

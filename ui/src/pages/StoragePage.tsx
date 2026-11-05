@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Trash2 } from 'lucide-react';
 
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
 import { ErrorText } from '../components/ErrorText';
+import { Loading, PageHeader, Section } from '../components/ui';
 import type { StorageCategoryStats } from '../types';
 
 function fmtBytes(bytes: number): string {
@@ -17,15 +19,13 @@ function fmtBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function CategoryRow({ label, cat, clearable }: { label: string; cat: StorageCategoryStats; clearable: boolean }) {
-  return (
-    <tr>
-      <td>{label}{clearable && <span className="muted"> (clearable)</span>}</td>
-      <td>{fmtBytes(cat.bytes)}</td>
-      <td>{cat.file_count}</td>
-    </tr>
-  );
+function files(count: number): string {
+  return `${count.toLocaleString()} file${count === 1 ? '' : 's'}`;
 }
+
+// Kept data in accent shades, re-downloadable cache in neutrals.
+const KEPT = ['var(--accent)', 'color-mix(in srgb, var(--accent) 65%, var(--surface))', 'color-mix(in srgb, var(--accent) 35%, var(--surface))'];
+const CACHE = ['var(--text-3)', 'var(--line-strong)', 'var(--surface-3)'];
 
 export function StoragePage() {
   const queryClient = useQueryClient();
@@ -36,15 +36,22 @@ export function StoragePage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.storage }),
   });
 
-  if (query.isLoading) {
-    return <p>Loading storage data...</p>;
-  }
+  const header = <PageHeader title="Storage" sub="Disk use of the /data volume." />;
 
+  if (query.isLoading) return <div className="page">{header}<Loading label="Loading storage…" /></div>;
   if (query.isError || !query.data) {
-    return <ErrorText error={query.error ?? 'Could not load storage data.'} />;
+    return <div className="page">{header}<ErrorText error={query.error ?? 'Could not load storage data.'} /></div>;
   }
 
   const s = query.data;
+  const parts: { label: string; note: string; cat: StorageCategoryStats; color: string }[] = [
+    { label: 'Database', note: 'Searches, candidates, feedback, settings', cat: s.database, color: KEPT[0] },
+    { label: 'Uploads', note: 'Your wardrobe photos', cat: s.uploads, color: KEPT[1] },
+    { label: 'Feedback assets', note: 'Photos of rated listings', cat: s.feedback_assets, color: KEPT[2] },
+    { label: 'Candidate images', note: 'Cache, can be cleared', cat: s.cache_candidate_images, color: CACHE[0] },
+    { label: 'Taste offer images', note: 'Cache, used by recompute', cat: s.cache_taste_offers, color: CACHE[1] },
+    { label: 'Other cache', note: 'Cache', cat: s.cache_other, color: CACHE[2] },
+  ];
 
   const onClearCache = () => {
     const confirmed = window.confirm(
@@ -58,83 +65,56 @@ export function StoragePage() {
   };
 
   return (
-    <section>
-      <div className="page-header">
+    <div className="page">
+      {header}
+
+      <div className="panel stack-lg">
         <div>
-          <p className="eyebrow">Disk usage</p>
-          <h2>Storage</h2>
+          <span className="stat-label">Total</span>
+          <p className="stat-value" style={{ fontSize: 'var(--fs-xl)' }}>{fmtBytes(s.total_bytes)}</p>
+        </div>
+        <div className="usage-bar" role="img" aria-label="Disk use by category">
+          {parts.map((part) => (
+            part.cat.bytes > 0 ? (
+              <span
+                key={part.label}
+                title={`${part.label}: ${fmtBytes(part.cat.bytes)}`}
+                style={{ flexGrow: part.cat.bytes, background: part.color }}
+              />
+            ) : null
+          ))}
+        </div>
+        <div className="usage-legend">
+          {parts.map((part) => (
+            <div key={part.label}>
+              <span className="status">
+                <span className="dot" style={{ background: part.color }} aria-hidden="true" />
+                {part.label}
+              </span>
+              <strong>{fmtBytes(part.cat.bytes)}</strong>
+              <div className="faint">{files(part.cat.file_count)} · {part.note}</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="card-grid">
-        <article className="card stat-card">
-          <span>Total</span>
-          <strong>{fmtBytes(s.total_bytes)}</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Database</span>
-          <strong>{fmtBytes(s.database.bytes)}</strong>
-          <span className="muted">{s.database.file_count} file{s.database.file_count !== 1 ? 's' : ''}</span>
-        </article>
-        <article className="card stat-card">
-          <span>Uploads</span>
-          <strong>{fmtBytes(s.uploads.bytes)}</strong>
-          <span className="muted">{s.uploads.file_count} file{s.uploads.file_count !== 1 ? 's' : ''}</span>
-        </article>
-        <article className="card stat-card">
-          <span>Feedback assets</span>
-          <strong>{fmtBytes(s.feedback_assets.bytes)}</strong>
-          <span className="muted">{s.feedback_assets.file_count} file{s.feedback_assets.file_count !== 1 ? 's' : ''}</span>
-        </article>
-        <article className="card stat-card">
-          <span>Cache</span>
-          <strong>
-            {fmtBytes(s.cache_candidate_images.bytes + s.cache_taste_offers.bytes + s.cache_other.bytes)}
-          </strong>
-          <span className="muted">
-            {s.cache_candidate_images.file_count + s.cache_taste_offers.file_count + s.cache_other.file_count} file
-            {s.cache_candidate_images.file_count + s.cache_taste_offers.file_count + s.cache_other.file_count !== 1
-              ? 's'
-              : ''}
-          </span>
-        </article>
-      </div>
-
-      <div className="card">
-        <h3>Cache breakdown</h3>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr className="muted">
-                <th>Category</th>
-                <th>Size</th>
-                <th>Files</th>
-              </tr>
-            </thead>
-            <tbody>
-              <CategoryRow label="Candidate images" cat={s.cache_candidate_images} clearable />
-              <CategoryRow label="Taste offer examples" cat={s.cache_taste_offers} clearable={false} />
-              <CategoryRow label="Other" cat={s.cache_other} clearable={false} />
-            </tbody>
-          </table>
-        </div>
-        <div className="button-row" style={{ marginTop: '1rem' }}>
-          <button onClick={onClearCache} disabled={clearCacheMutation.isPending}>
-            {clearCacheMutation.isPending ? 'Clearing...' : 'Clear image cache'}
+      <Section
+        title="Candidate image cache"
+        sub="Thumbnails of scanned listings. Clearing is safe: they are fetched from Vinted again when needed. Taste offer images, uploads and the database are never touched."
+      >
+        <div className="row">
+          <button type="button" className="btn" onClick={onClearCache} disabled={clearCacheMutation.isPending || s.cache_candidate_images.bytes === 0}>
+            <Trash2 size={15} aria-hidden="true" />
+            {clearCacheMutation.isPending ? 'Clearing…' : `Clear ${fmtBytes(s.cache_candidate_images.bytes)}`}
           </button>
-          {clearCacheMutation.isSuccess && (
-            <span className="muted">
-              Freed {fmtBytes(clearCacheMutation.data.bytes_freed)} ({clearCacheMutation.data.files_removed} files).
+          {clearCacheMutation.isSuccess ? (
+            <span className="success-text">
+              Freed {fmtBytes(clearCacheMutation.data.bytes_freed)} ({files(clearCacheMutation.data.files_removed)}).
             </span>
-          )}
+          ) : null}
         </div>
         <ErrorText error={clearCacheMutation.error} prefix="Clear cache failed" />
-        <p className="muted" style={{ marginTop: '1rem' }}>
-          Only candidate listing thumbnails are cleared here — they're re-downloaded from Vinted as needed. Taste
-          offer examples feed future taste recompute and aren't cleared by this action. Uploads and the database
-          are never touched.
-        </p>
-      </div>
-    </section>
+      </Section>
+    </div>
   );
 }

@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 
+import { Play, RefreshCw } from 'lucide-react';
+
 import { ErrorText } from '../components/ErrorText';
+import { Empty, Loading, PageHeader } from '../components/ui';
 import {
   formFromSearch,
   payloadFromForm,
@@ -101,42 +104,54 @@ export function SearchesPage() {
     }
   };
 
-  if (searchesQuery.isLoading) return <p>Loading searches…</p>;
-  if (searchesQuery.isError || !searchesQuery.data) return <ErrorText error={searchesQuery.error ?? 'Could not load searches.'} />;
-  const globalAlertThreshold = settingsQuery.data?.alert_threshold ?? 9;
+  const header = (
+    <PageHeader
+      title="Searches"
+      sub="One saved Vinted search per clothing bucket. The worker scans each enabled search on the interval set in Settings."
+      actions={(
+        <>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => applySizesMutation.mutate()}
+            disabled={applySizesMutation.isPending}
+            title="Copy the sizes from your Vinted profile into every search"
+          >
+            <RefreshCw size={15} aria-hidden="true" />
+            {applySizesMutation.isPending ? 'Syncing sizes…' : 'Sync sizes'}
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => runAllMutation.mutate()} disabled={runAllMutation.isPending}>
+            <Play size={15} aria-hidden="true" />
+            {runAllMutation.isPending ? 'Running all…' : 'Run all now'}
+          </button>
+        </>
+      )}
+    />
+  );
+
+  if (searchesQuery.isLoading) return <div className="page">{header}<Loading label="Loading searches…" /></div>;
+  if (searchesQuery.isError || !searchesQuery.data) {
+    return <div className="page">{header}<ErrorText error={searchesQuery.error ?? 'Could not load searches.'} /></div>;
+  }
+  const globalAlertThreshold = settingsQuery.data?.alert_threshold ?? 95;
 
   return (
-    <section>
-      <div className="page-header searches-page-header">
-        <div>
-          <p className="eyebrow">Search control</p>
-          <h2>Saved searches</h2>
-          <p className="muted">One editable Vinted radar per clothing bucket. Tune the existing category searches; no duplicates, no mystery closet clones.</p>
-        </div>
-        <button
-          className="secondary"
-          onClick={() => applySizesMutation.mutate()}
-          disabled={applySizesMutation.isPending}
-        >
-          {applySizesMutation.isPending ? 'Syncing sizes…' : 'Sync sizes'}
-        </button>
-        <button onClick={() => runAllMutation.mutate()} disabled={runAllMutation.isPending}>
-          {runAllMutation.isPending ? 'Running all…' : 'Run all'}
-        </button>
-      </div>
+    <div className="page">
+      {header}
 
       <ErrorText error={categoryOptionsQuery.error} prefix="Category metadata failed to load" />
       <ErrorText error={runAllMutation.error} prefix="Run all failed" />
       <ErrorText error={applySizesMutation.error} prefix="Size sync failed" />
+      {applySizesMutation.isSuccess ? (
+        <p className="success-text">Applied sizes {applySizesMutation.data.sizes.join(', ') || '(none found)'} to every search.</p>
+      ) : null}
 
       {searchesQuery.data.length === 0 ? (
-        <article className="card empty-searches-card">
-          <p className="eyebrow">No canonical searches found</p>
-          <h3>Restart the backend to seed category searches</h3>
-          <p className="muted">The API should create exactly one search per clothing bucket on startup.</p>
-        </article>
+        <Empty title="No searches yet">
+          The API creates one search per clothing bucket when it starts. Restart the backend to seed them.
+        </Empty>
       ) : (
-        <div className="stack">
+        <div className="search-list">
           {searchesQuery.data.map((search) => {
             const runResult = liveMutation.data?.search_id === search.id
               ? liveMutation.data
@@ -159,6 +174,7 @@ export function SearchesPage() {
                 isBusy={{
                   live: liveMutation.isPending && liveMutation.variables === search.id,
                   quick: updateMutation.isPending && updateMutation.variables?.searchId === search.id && !builder,
+                  toggle: toggleMutation.isPending && toggleMutation.variables === search.id,
                 }}
               />
             );
@@ -180,6 +196,6 @@ export function SearchesPage() {
           syncSizesError={syncSizesMutation.error}
         />
       ) : null}
-    </section>
+    </div>
   );
 }

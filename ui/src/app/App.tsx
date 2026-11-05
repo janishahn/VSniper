@@ -1,50 +1,101 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  BarChart3,
   CircleAlert,
+  Crosshair,
   Gauge,
   HardDrive,
   LayoutGrid,
+  Receipt,
   Search,
   Settings,
-  User,
+  Shirt,
 } from 'lucide-react';
 
-const links = [
-  { to: '/', label: 'Dashboard', icon: Gauge, end: true },
-  { to: '/my-taste', label: 'My Taste', icon: User },
-  { to: '/searches', label: 'Searches', icon: Search },
-  { to: '/candidates', label: 'Candidates', icon: LayoutGrid },
-  { to: '/costs', label: 'AI Costs', icon: BarChart3 },
-  { to: '/settings', label: 'Settings', icon: Settings },
-  { to: '/storage', label: 'Storage', icon: HardDrive },
-  { to: '/errors', label: 'Errors', icon: CircleAlert },
+import { api } from '../lib/api';
+import { queryKeys } from '../lib/queryKeys';
+import { StatusDot } from '../components/ui';
+
+const groups = [
+  {
+    label: 'Review',
+    links: [
+      { to: '/', label: 'Dashboard', icon: Gauge, end: true },
+      { to: '/candidates', label: 'Candidates', icon: LayoutGrid },
+    ],
+  },
+  {
+    label: 'Tune',
+    links: [
+      { to: '/my-taste', label: 'My Taste', icon: Shirt },
+      { to: '/searches', label: 'Searches', icon: Search },
+      { to: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
+  {
+    label: 'Monitor',
+    links: [
+      { to: '/costs', label: 'AI costs', icon: Receipt },
+      { to: '/errors', label: 'Errors', icon: CircleAlert },
+      { to: '/storage', label: 'Storage', icon: HardDrive },
+    ],
+  },
 ];
 
+const titles: Record<string, string> = Object.fromEntries(
+  groups.flatMap((group) => group.links.map((link) => [link.to, link.label])),
+);
+
+const sessionTone = { healthy: 'ok', warning: 'warn', missing: 'bad' } as const;
+
 export function AppLayout() {
+  const location = useLocation();
+  const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
+  const session = settingsQuery.data?.session_health;
+
+  useEffect(() => {
+    const title = titles[location.pathname];
+    document.title = title ? `${title} · VSniper` : 'VSniper';
+  }, [location.pathname]);
+
   return (
-    <div className="app-shell">
+    <div className="shell">
       <aside className="sidebar">
-        <div>
-          <p className="eyebrow">vsniper</p>
-          <h1>Vinted Operations</h1>
-          <p className="muted">Search, scoring, alerts, and review.</p>
-        </div>
-        <nav className="nav-list">
-          {links.map((link) => (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.end}
-              className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
-            >
-              <link.icon size={16} />
-              {link.label}
-            </NavLink>
+        <Link to="/" className="brand">
+          <span className="brand-mark" aria-hidden="true"><Crosshair size={14} strokeWidth={2.5} /></span>
+          VSniper
+        </Link>
+        <nav className="nav" aria-label="Main">
+          {groups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group-label">{group.label}</span>
+              {group.links.map((link) => (
+                <NavLink
+                  key={link.to}
+                  to={link.to}
+                  end={link.end}
+                  className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
+                >
+                  <link.icon size={16} aria-hidden="true" />
+                  {link.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
+        {session ? (
+          <div className="sidebar-foot">
+            <StatusDot tone={sessionTone[session.status]}>
+              Vinted {session.status === 'healthy' ? 'connected' : session.status}
+            </StatusDot>
+            <StatusDot tone={settingsQuery.data?.telegram_configured ? 'ok' : 'bad'}>
+              Telegram {settingsQuery.data?.telegram_configured ? 'connected' : 'missing'}
+            </StatusDot>
+          </div>
+        ) : null}
       </aside>
-      <main className="content">
+      <main className="main">
         <Outlet />
       </main>
     </div>

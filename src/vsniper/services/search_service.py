@@ -380,6 +380,18 @@ class SearchService:
             self._close_orphaned_runs(search_id)
         return claimed
 
+    def release_interrupted_runs(self) -> None:
+        """Clears "running" claims left by a previous app process, which a restart mid-scan leaves behind.
+
+        The app runs as one process, so at worker start no scan can still be in flight.
+        """
+        with session_scope() as session:
+            search_ids = list(session.scalars(select(Search.id).where(Search.run_status == "running")))
+            if search_ids:
+                session.execute(update(Search).where(Search.id.in_(search_ids)).values(run_status="failed"))
+        for search_id in search_ids:
+            self._close_orphaned_runs(search_id)
+
     def _close_orphaned_runs(self, search_id: str) -> None:
         for run_id in close_orphaned_running_runs(search_id):
             errors = getattr(self, "errors", None)

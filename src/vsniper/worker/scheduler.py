@@ -345,6 +345,7 @@ def _run_telegram_poller() -> None:
 def start() -> list[threading.Thread]:
     """Start the scan loop and Telegram poller as daemon threads of the app process."""
     _stop.clear()
+    get_state().searches.release_interrupted_runs()
     threads = [
         threading.Thread(target=_run_continuous_loop, args=(None,), name="scan-loop", daemon=True),
         threading.Thread(target=_run_telegram_poller, name="telegram-poller", daemon=True),

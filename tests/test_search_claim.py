@@ -151,6 +151,19 @@ def test_stale_reclaim_closes_orphaned_search_run_as_failed(monkeypatch, tmp_pat
         assert "Orphaned" in orphaned.error
 
 
+def test_restart_releases_interrupted_claims_so_a_manual_run_can_start(monkeypatch, tmp_path) -> None:
+    service, factory = _setup(monkeypatch, tmp_path)
+    _set(factory, run_status="running", last_claimed_at=datetime.now(UTC))
+    with _session_scope_of(factory) as session:
+        session.add(SearchRun(search_id="s1", mode="live", trigger="worker", status="running", started_at=datetime.now(UTC)))
+
+    service.release_interrupted_runs()
+
+    assert _row(factory).run_status == "failed"
+    assert _latest_run(factory).status == "failed"
+    assert service.claim_for_run("s1", timedelta(0)) is True
+
+
 def test_api_live_run_rejects_active_claim(monkeypatch, tmp_path) -> None:
     service, factory = _setup(monkeypatch, tmp_path)
     _set(factory, run_status="running", last_claimed_at=datetime.now(UTC))

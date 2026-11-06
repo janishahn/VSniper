@@ -6,11 +6,10 @@ _logger = logging.getLogger(__name__)
 _warned_unknown: set[str] = set()
 
 # Standard tier prices per 1M tokens: model -> (input_usd, output_usd, cached_input_usd).
-# The Decisions API bills no output tokens. OpenAI does not publish gpt-6-luna's cached rate,
-# so cached tokens are counted at the full input rate (an upper bound).
+# The Decisions API bills no output tokens.
 _PRICING: dict[str, tuple[float, float, float]] = {
     "gpt-6.1-terra": (1.0, 5.0, 0.05),
-    "gpt-6-luna": (0.10, 0.0, 0.10),
+    "gpt-6-luna": (0.10, 0.0, 0.01),
 }
 
 

@@ -1177,10 +1177,14 @@ class OpenAITasteClient:
         disliked_anchors: list[LabeledExample],
         manual_note: str | None,
         on_usage: UsageCallback | None = None,
+        include_labels: bool = False,
     ) -> CandidateJudgment:
-        """Ask the decision model for P(alert) plus taste labels and penalties for one listing.
+        """Ask the decision model for P(alert) for one listing, plus taste labels and penalties
+        when include_labels is set.
 
-        The explanation is left empty; the caller asks the vision model for one on alerts only."""
+        Question text is never cached and each label question adds about 160 tokens, so callers
+        ask for labels only on alerts. The explanation is left empty; the caller asks the vision
+        model for one on alerts only."""
         model_name = self.settings.openai_decision_model
         context = _taste_context(
             taste_profile=taste_profile,
@@ -1189,6 +1193,8 @@ class OpenAITasteClient:
             manual_note=manual_note,
         )
         questions = _decision_questions(taste_profile)
+        if not include_labels:
+            questions = questions[:1]
         payload = {
             "model": model_name,
             "input": [

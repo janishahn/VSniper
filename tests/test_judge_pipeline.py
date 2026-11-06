@@ -293,10 +293,12 @@ def test_only_alerts_get_an_explanation_and_failed_decisions_are_marked_failed()
     taste = TasteProfile(summary="", taste_prompt="likes vintage")
     jpeg = _jpeg()
 
-    def _judge(*, candidate: CandidateImageInput, **kwargs) -> CandidateJudgment:
+    def _judge(*, candidate: CandidateImageInput, include_labels: bool = False, **kwargs) -> CandidateJudgment:
         if candidate.candidate_id.endswith("broken"):
             raise OpenAIIntegrationError("decision refused")
-        return _judgment(97 if candidate.candidate_id.endswith("match") else 40)
+        judgment = _judgment(97 if candidate.candidate_id.endswith("match") else 40)
+        judgment.labels = ["Wide leg"] if include_labels else []
+        return judgment
 
     def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
         return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
@@ -309,6 +311,8 @@ def test_only_alerts_get_an_explanation_and_failed_decisions_are_marked_failed()
     assert traces["search-001:match"].decision == "alert"
     assert traces["search-001:match"].explanation == "Washed black wide-leg cargos."
     assert traces["search-001:miss"].explanation == ""
+    labelled = [call.kwargs["candidate"].candidate_id for call in service.taste_client.judge_candidate.call_args_list if call.kwargs.get("include_labels")]
+    assert labelled == ["search-001:match"]
     assert service.taste_client.explain_judgment.call_count == 1
     assert stages["search-001:broken"] == "failed"
     assert traces["search-001:broken"].explanation == "decision refused"

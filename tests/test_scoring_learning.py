@@ -95,12 +95,30 @@ def test_decision_judgment_turns_probabilities_into_score_labels_and_concerns() 
         disliked_anchors=[],
         manual_note=None,
         on_usage=lambda *args: usage.append(args),
+        include_labels=True,
     )
 
     assert judgment.score == 87
     assert judgment.labels == ["Bold color"]
     assert judgment.concerns == ["Fast-fashion logos"]
     assert usage == [("judge_decision", "gpt-6-luna", 1500, 0, 1200)]
+
+
+def test_decision_asks_only_the_alert_question_by_default() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert [question["name"] for question in payload["questions"]] == ["alert"]
+        return httpx.Response(200, json={"answers": [{"type": "predicate", "name": "alert", "probability": 0.3}]})
+
+    judgment = _decision_client(handler).judge_candidate(
+        taste_profile=TasteProfile(summary="", taste_prompt="likes bold", transparency_labels=["Bold color"]),
+        candidate=CandidateImageInput(candidate_id="candidate-a", image_bytes=_jpeg_bytes("red")),
+        liked_anchors=[],
+        disliked_anchors=[],
+        manual_note=None,
+    )
+
+    assert (judgment.score, judgment.labels) == (30, [])
 
 
 def test_decision_without_an_alert_answer_is_an_integration_error() -> None:

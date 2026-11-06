@@ -680,7 +680,7 @@ class SearchService:
         on_usage: UsageCallback | None,
         alert_threshold: int,
     ) -> tuple[ScoreTrace, str]:
-        """Decide one listing; alerts also get a written explanation from the vision model.
+        """Decide one listing; alerts also get taste labels and a written explanation.
 
         A failed call marks the listing "failed", so the next cycle judges it again."""
         model = self.settings.openai_decision_model
@@ -694,6 +694,16 @@ class SearchService:
                 on_usage=on_usage,
             )
             if judgment.score >= alert_threshold:
+                labelled = self.taste_client.judge_candidate(
+                    taste_profile=taste_profile,
+                    candidate=item,
+                    liked_anchors=liked_anchors,
+                    disliked_anchors=disliked_anchors,
+                    manual_note=manual_note or None,
+                    on_usage=on_usage,
+                    include_labels=True,
+                )
+                judgment.labels, judgment.concerns = labelled.labels, labelled.concerns
                 judgment.explanation = self.taste_client.explain_judgment(
                     taste_profile=taste_profile,
                     candidate=item,

@@ -11,11 +11,12 @@ from datetime import UTC, datetime
 from time import perf_counter
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from vsniper.core.config import get_settings
 from vsniper.core.database import dispose_engine, init_database, session_scope
-from vsniper.db.models import AiUsageEvent, AppSettingsState, Search, TasteState
+from vsniper.db.models import AiUsageEvent, AppSettingsState, Search, User
 from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.domain.contracts import (
     SettingsSnapshot,
@@ -32,6 +33,7 @@ from vsniper.services.search_defaults import canonical_search_values
 from vsniper.services.search_service import SearchService
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
+from vsniper.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
 _state_lock = threading.Lock()
@@ -43,12 +45,10 @@ def _default_settings(now: datetime) -> SettingsSnapshot:
     telegram_configured, ai_configured = integration_configuration()
     return SettingsSnapshot(
         telegram_bot_token=runtime.telegram_bot_token,
-        telegram_chat_id=runtime.telegram_chat_id,
         telegram_configured=telegram_configured,
         ai_configured=ai_configured,
         vision_model=runtime.openai_vision_model,
         decision_model=runtime.openai_decision_model,
-        alert_threshold=95,
     )
 
 
@@ -75,6 +75,8 @@ class AppState:
         init_database()
         logger.info("AppState database initialized")
         self._seed_if_empty()
+        self.users = UserService(self.settings)
+        self.users.sync_allowed_chats()
         logger.info("AppState defaults seeded")
 
         self.errors = ErrorService(self.settings, self.telegram_client)
@@ -89,6 +91,7 @@ class AppState:
             self.candidates,
             self.vinted_client,
             self.taste,
+            self.users,
             self.errors,
         )
         self.searches = SearchService(
@@ -124,26 +127,20 @@ class AppState:
                 .values(
                     id=1,
                     telegram_bot_token=settings.telegram_bot_token or "",
-                    telegram_chat_id=settings.telegram_chat_id or "",
                     telegram_configured=settings.telegram_configured,
                     error_telegram_notifications_enabled=False,
-                    alert_threshold=settings.alert_threshold,
                     scan_interval_seconds=settings.scan_interval_seconds,
                 )
                 .on_conflict_do_nothing()
             )
-            session.execute(
-                sqlite_insert(TasteState)
-                .values(id=1, manual_note="", taste_profile={}, reference_observations=[])
-                .on_conflict_do_nothing()
-            )
-            # Buckets are seeded by their migration; every bucket owns one search.
-            for bucket in bucket_records(session, include_archived=True):
-                session.execute(
-                    sqlite_insert(Search)
-                    .values(**canonical_search_values(bucket, now=now))
-                    .on_conflict_do_nothing()
-                )
+            # Every bucket owns one search.
+            for user_id in session.scalars(select(User.id)).all():
+                for bucket in bucket_records(session, user_id, include_archived=True):
+                    session.execute(
+                        sqlite_insert(Search)
+                        .values(**canonical_search_values(user_id, bucket, now=now))
+                        .on_conflict_do_nothing()
+                    )
         logger.info("AppState seed_if_empty finished")
 
     def _record_ai_usage(
@@ -160,9 +157,9 @@ class AppState:
                 cost_usd=compute_cost(model, input_tokens, output_tokens, cached_input_tokens),
             ))
 
-    def build_test_telegram_message(self) -> str:
-        """Convenience for the /api/telegram/test-preview route — needs candidate list + formatter."""
-        return self.telegram.build_test_message(self.candidates.page(limit=1).items)
+    def build_test_telegram_message(self, user_id: int) -> str:
+        """Convenience for the Telegram preview route — needs candidate list + formatter."""
+        return self.telegram.build_test_message(self.candidates.page(user_id, limit=1).items)
 
     def close(self) -> None:
         self.taste_client.close()

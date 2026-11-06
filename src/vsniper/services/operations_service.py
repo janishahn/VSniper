@@ -131,11 +131,10 @@ def _get_delivery_summary() -> DeliveryQueueSummary:
 
 
 def _get_recompute_status() -> str:
+    """"running" while any user's taste profile is being rebuilt."""
     with session_scope() as session:
-        state = session.get(TasteState, 1)
-        if state is None:
-            return "idle"
-        return state.recompute_status or "idle"
+        running = session.scalar(select(TasteState.user_id).where(TasteState.recompute_status == "running").limit(1))
+        return "running" if running is not None else "idle"
 
 
 def get_operations_snapshot() -> OperationsSnapshot:

@@ -7,6 +7,7 @@ import { api, ApiError } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
+import { useCurrentUser, useUserId } from '../lib/useUserId';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import {
   filterGroupLabel,
@@ -922,14 +923,15 @@ function DraftSearches({
   itemProfile: ClothingItemTasteProfile | null;
   learningSnapshot: LearningSnapshot | null;
 }) {
+  const userId = useUserId();
   const queryClient = useQueryClient();
-  const searchesQuery = useQuery({ queryKey: queryKeys.searches, queryFn: api.getSearches });
+  const searchesQuery = useQuery({ queryKey: queryKeys.searches(userId), queryFn: () => api.getSearches(userId) });
   const [selectedDraft, setSelectedDraft] = useState<GeneratedSearchDraft | null>(null);
   const updateMutation = useMutation({
-    mutationFn: ({ searchId, payload }: { searchId: string; payload: SearchUpdatePayload }) => api.updateSearch(searchId, payload),
+    mutationFn: ({ searchId, payload }: { searchId: string; payload: SearchUpdatePayload }) => api.updateSearch(userId, searchId, payload),
     onSuccess: () => {
       setSelectedDraft(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.searches });
+      queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
     },
   });
 
@@ -943,10 +945,10 @@ function DraftSearches({
         if (!fields.size && !filterGroups.size) return [];
         return [{ searchId: search.id, payload: mergeDraftIntoSearch(search, draft, fields, filterGroups) }];
       });
-      await Promise.all(updates.map(({ searchId, payload }) => api.updateSearch(searchId, payload)));
+      await Promise.all(updates.map(({ searchId, payload }) => api.updateSearch(userId, searchId, payload)));
       return updates.length;
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.searches }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) }),
   });
   const quickApplicableCount = allDrafts.filter((draft) => {
     const search = searches.find((item) => item.clothing_item === draft.clothing_item);
@@ -1166,18 +1168,20 @@ const SECTIONS = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function MyTastePage() {
+  const userId = useUserId();
   const queryClient = useQueryClient();
   const tasteQuery = useQuery({
-    queryKey: queryKeys.taste,
-    queryFn: api.getTaste,
+    queryKey: queryKeys.taste(userId),
+    queryFn: () => api.getTaste(userId),
     // Poll while a recompute is running (possibly started elsewhere) so the UI
     // reflects completion without a manual refresh.
     refetchInterval: (query) => (query.state.data?.recompute_state?.status === 'running' ? 3000 : false),
   });
-  const blockedBrandsQuery = useQuery({ queryKey: queryKeys.blockedBrands, queryFn: api.getBlockedBrands });
+  const { user, query: usersQuery } = useCurrentUser();
+  const blockedBrands = user?.blocked_brands ?? [];
   const updateBlockedBrandsMutation = useMutation({
-    mutationFn: api.updateBlockedBrands,
-    onSuccess: (result) => queryClient.setQueryData(queryKeys.blockedBrands, result),
+    mutationFn: (brands: string[]) => api.updateBlockedBrands(userId, brands),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.users }),
   });
   const [uploadOpen, setUploadOpen] = useState(false);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -1209,24 +1213,24 @@ export function MyTastePage() {
     : clothingItems[0]?.value ?? '';
 
   const judgmentPromptQuery = useQuery({
-    queryKey: queryKeys.judgmentPrompt(selectedProfileItem),
-    queryFn: () => api.getJudgmentPrompt(selectedProfileItem),
+    queryKey: queryKeys.judgmentPrompt(userId, selectedProfileItem),
+    queryFn: () => api.getJudgmentPrompt(userId, selectedProfileItem),
     enabled: !!tasteQuery.data?.taste_profile && !!selectedProfileItem,
   });
 
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.taste });
-    queryClient.invalidateQueries({ queryKey: queryKeys.candidates });
+    queryClient.invalidateQueries({ queryKey: queryKeys.taste(userId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.candidates(userId) });
   };
 
   const uploadMutation = useMutation({
     mutationFn: ({ file, note, clothingItem }: { file: File; note: string; clothingItem: ClothingItem }) =>
-      api.uploadWardrobeImage(file, note, clothingItem),
+      api.uploadWardrobeImage(userId, file, note, clothingItem),
     onSuccess: () => invalidate(),
   });
 
   const zipImportMutation = useMutation({
-    mutationFn: (file: File) => api.importWardrobeZip(file),
+    mutationFn: (file: File) => api.importWardrobeZip(userId, file),
     onSuccess: (result: WardrobeZipImportResult) => {
       invalidate();
       const n = result.imported.length;
@@ -1238,17 +1242,17 @@ export function MyTastePage() {
 
   const updateSampleMutation = useMutation({
     mutationFn: ({ sampleId, note, clothingItem, kind }: { sampleId: string; note: string; clothingItem: ClothingItem; kind?: OfferKind }) =>
-      api.updateTasteSample(sampleId, { note, clothing_item: clothingItem, ...(kind ? { kind } : {}) }),
+      api.updateTasteSample(userId, sampleId, { note, clothing_item: clothingItem, ...(kind ? { kind } : {}) }),
     onSuccess: invalidate,
   });
-  const deleteSampleMutation = useMutation({ mutationFn: api.deleteTasteSample, onSuccess: invalidate });
+  const deleteSampleMutation = useMutation({ mutationFn: (sampleId: string) => api.deleteTasteSample(userId, sampleId), onSuccess: invalidate });
   const addOfferMutation = useMutation({
     mutationFn: (payload: { vinted_url: string; kind: OfferKind; clothing_item: ClothingItem; note: string }) =>
-      api.addTasteOffer(payload),
+      api.addTasteOffer(userId, payload),
     onSuccess: invalidate,
   });
   const manualNoteMutation = useMutation({
-    mutationFn: api.updateTasteManualNote,
+    mutationFn: (text: string) => api.updateTasteManualNote(userId, text),
     onSuccess: (_result, submittedNote) => {
       if (manualNote === submittedNote) {
         setManualNoteDirty(false);
@@ -1257,12 +1261,12 @@ export function MyTastePage() {
     },
   });
   const recomputeMutation = useMutation({
-    mutationFn: api.recomputeTaste,
+    mutationFn: () => api.recomputeTaste(userId),
     onSuccess: (result) => {
       setLastCost(result.cost_usd);
       setLastObservationCache(result.observation_cache);
-      queryClient.setQueryData(queryKeys.taste, result.snapshot);
-      queryClient.invalidateQueries({ queryKey: queryKeys.searches });
+      queryClient.setQueryData(queryKeys.taste(userId), result.snapshot);
+      queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.costs });
     },
     onError: () => {
@@ -1270,12 +1274,12 @@ export function MyTastePage() {
       // synchronous server-side recompute keeps running. Refetch so the snapshot's
       // recompute_state takes over driving the polling/banner, instead of leaving the UI
       // stuck on "Recompute failed" until the user re-clicks and hits an opaque 409.
-      queryClient.invalidateQueries({ queryKey: queryKeys.taste });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taste(userId) });
     },
   });
   const cancelRecomputeMutation = useMutation({
-    mutationFn: api.cancelTasteRecompute,
-    onSuccess: (snapshot) => queryClient.setQueryData(queryKeys.taste, snapshot),
+    mutationFn: () => api.cancelTasteRecompute(userId),
+    onSuccess: (snapshot) => queryClient.setQueryData(queryKeys.taste(userId), snapshot),
   });
 
   const grouped = useMemo(() => {
@@ -1520,23 +1524,22 @@ export function MyTastePage() {
           >
             <div className="stack">
               <BrandSearchInput
-                blockedBrands={blockedBrandsQuery.data?.brands ?? []}
+                blockedBrands={blockedBrands}
                 onAdd={(title) => {
-                  const current = blockedBrandsQuery.data?.brands ?? [];
+                  const current = blockedBrands;
                   if (current.some((brand) => brand.toLowerCase() === title.toLowerCase())) return;
                   updateBlockedBrandsMutation.mutate([...current, title]);
                 }}
               />
-              {blockedBrandsQuery.data?.brands.length ? (
+              {blockedBrands.length > 0 ? (
                 <div className="chips">
-                  {blockedBrandsQuery.data.brands.map((brand) => (
+                  {blockedBrands.map((brand) => (
                     <button
                       type="button"
                       className="chip"
                       key={brand}
                       onClick={() => {
-                        const current = blockedBrandsQuery.data?.brands ?? [];
-                        updateBlockedBrandsMutation.mutate(current.filter((b) => b !== brand));
+                        updateBlockedBrandsMutation.mutate(blockedBrands.filter((b) => b !== brand));
                       }}
                       disabled={updateBlockedBrandsMutation.isPending}
                       title={`Unblock ${brand}`}
@@ -1546,9 +1549,9 @@ export function MyTastePage() {
                   ))}
                 </div>
               ) : (
-                <p className="hint">{blockedBrandsQuery.isLoading ? 'Loading…' : 'No brands blocked.'}</p>
+                <p className="hint">{usersQuery.isLoading ? 'Loading…' : 'No brands blocked.'}</p>
               )}
-              <ErrorText error={blockedBrandsQuery.error ?? updateBlockedBrandsMutation.error} prefix="Blocked brands update failed" />
+              <ErrorText error={usersQuery.error ?? updateBlockedBrandsMutation.error} prefix="Blocked brands update failed" />
             </div>
           </Section>
 

@@ -36,7 +36,6 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
             AppSettingsState(
                 id=1,
                 telegram_bot_token="telegram-bot-secret",
-                telegram_chat_id="chat-123",
                 telegram_configured=True,
                 error_telegram_notifications_enabled=enabled,
             )
@@ -45,6 +44,7 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
     runtime = SimpleNamespace(
         telegram_bot_token="put-your-telegram-bot-token-here",
         openai_api_key="put-your-openai-api-key-here",
+        allowed_chat_ids=["123"],
     )
     telegram = SimpleNamespace(bot_token="", send_message=lambda **_kwargs: {"message_id": 1})
     return ErrorService(runtime, telegram), factory

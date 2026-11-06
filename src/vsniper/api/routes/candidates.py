@@ -2,14 +2,16 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
+from vsniper.api.routes.users import UserId
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import CandidatePage, CandidateRecord, FeedbackPayload
 
 router = APIRouter(tags=["candidates"])
 
 
-@router.get("/candidates", response_model=CandidatePage)
+@router.get("/users/{user_id}/candidates", response_model=CandidatePage)
 def list_candidates(
+    user_id: UserId,
     clothing_item: str | None = Query(default=None),
     stage: str | None = Query(default=None),
     decision: str | None = Query(default=None),
@@ -21,6 +23,7 @@ def list_candidates(
     offset: int = Query(default=0, ge=0),
 ) -> CandidatePage:
     return get_state().candidates.page(
+        user_id,
         clothing_item=clothing_item,
         stage=stage,
         decision=decision,
@@ -33,19 +36,19 @@ def list_candidates(
     )
 
 
-@router.post("/candidates/{candidate_id}/feedback", response_model=CandidateRecord)
-def record_feedback(candidate_id: str, payload: FeedbackPayload) -> CandidateRecord:
+@router.post("/users/{user_id}/candidates/{candidate_id}/feedback", response_model=CandidateRecord)
+def record_feedback(user_id: UserId, candidate_id: str, payload: FeedbackPayload) -> CandidateRecord:
     try:
-        return get_state().candidates.record_feedback(candidate_id, payload)
+        return get_state().candidates.record_feedback(user_id, candidate_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Candidate not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.post("/candidates/{candidate_id}/retry-delivery", status_code=status.HTTP_204_NO_CONTENT)
-def retry_delivery(candidate_id: str) -> None:
-    if not get_state().telegram.retry_delivery(candidate_id):
+@router.post("/users/{user_id}/candidates/{candidate_id}/retry-delivery", status_code=status.HTTP_204_NO_CONTENT)
+def retry_delivery(user_id: UserId, candidate_id: str) -> None:
+    if not get_state().telegram.retry_delivery(user_id, candidate_id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="No failed Telegram delivery to retry for this candidate.",

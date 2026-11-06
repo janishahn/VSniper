@@ -2,8 +2,6 @@ from fastapi import APIRouter, HTTPException
 
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import (
-    BlockedBrandsSnapshot,
-    BlockedBrandsUpdate,
     SettingsSnapshot,
     SettingsUpdate,
     VintedBrandOption,
@@ -21,16 +19,6 @@ def get_settings() -> SettingsSnapshot:
 @router.put("/settings", response_model=SettingsSnapshot)
 def update_settings(payload: SettingsUpdate) -> SettingsSnapshot:
     return get_state().searches.update_app_settings(payload)
-
-
-@router.get("/settings/blocked-brands", response_model=BlockedBrandsSnapshot)
-def get_blocked_brands() -> BlockedBrandsSnapshot:
-    return BlockedBrandsSnapshot(brands=get_state().searches.get_blocked_brands())
-
-
-@router.put("/settings/blocked-brands", response_model=BlockedBrandsSnapshot)
-def update_blocked_brands(payload: BlockedBrandsUpdate) -> BlockedBrandsSnapshot:
-    return BlockedBrandsSnapshot(brands=get_state().searches.update_blocked_brands(payload.brands))
 
 
 @router.get("/vinted/brands", response_model=list[VintedBrandOption])

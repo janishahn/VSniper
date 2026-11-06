@@ -7,6 +7,7 @@ import { Empty, Loading, Modal, PageHeader } from '../components/ui';
 import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { queryKeys } from '../lib/queryKeys';
+import { useUserId } from '../lib/useUserId';
 import type { BucketRecord, BucketSize, VintedCatalogNode } from '../types';
 
 type BucketForm = {
@@ -202,6 +203,7 @@ function BucketModal({
   bucket: BucketRecord | null;
   onClose: () => void;
 }) {
+  const userId = useUserId();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<BucketForm>(bucket ? formFromBucket(bucket) : emptyForm);
   const [keyTouched, setKeyTouched] = useState(false);
@@ -219,12 +221,12 @@ function BucketModal({
         sizes: form.sizes,
       };
       return isNew
-        ? api.createBucket({ ...payload, key })
-        : api.updateBucket(bucket.key, { ...payload, archived: bucket.archived });
+        ? api.createBucket(userId, { ...payload, key })
+        : api.updateBucket(userId, bucket.key, { ...payload, archived: bucket.archived });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.buckets });
-      queryClient.invalidateQueries({ queryKey: queryKeys.searches });
+      queryClient.invalidateQueries({ queryKey: queryKeys.buckets(userId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
       onClose();
     },
   });
@@ -305,16 +307,17 @@ function BucketRow({
   bucket: BucketRecord;
   onEdit: () => void;
 }) {
+  const userId = useUserId();
   const queryClient = useQueryClient();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.buckets });
-    queryClient.invalidateQueries({ queryKey: queryKeys.searches });
+    queryClient.invalidateQueries({ queryKey: queryKeys.buckets(userId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
   };
-  const deleteMutation = useMutation({ mutationFn: () => api.deleteBucket(bucket.key), onSuccess: invalidate });
+  const deleteMutation = useMutation({ mutationFn: () => api.deleteBucket(userId, bucket.key), onSuccess: invalidate });
   const restoreMutation = useMutation({
     mutationFn: () =>
-      api.updateBucket(bucket.key, {
+      api.updateBucket(userId, bucket.key, {
         label: bucket.label,
         description: bucket.description,
         catalog_ids: bucket.categories.map((category) => category.id),

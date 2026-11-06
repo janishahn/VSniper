@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from vsniper.core.config import Settings
 from vsniper.core.database import session_scope
-from vsniper.db.models import AppSettingsState, Bucket, Candidate, LearningSnapshotState, TasteSampleState, TasteState
+from vsniper.db.models import Bucket, Candidate, LearningSnapshotState, TasteSampleState, TasteState
 from vsniper.domain.contracts import (
     CandidateFeature,
     ClothingItem,
@@ -145,23 +145,32 @@ class TasteService:
             raise ValueError("Only JPEG, PNG, and WebP image uploads are supported.")
         return suffix
 
-    def get_taste_state(self, session: Session) -> TasteState:
-        model = session.get(TasteState, 1)
+    def get_taste_state(self, session: Session, user_id: int) -> TasteState:
+        model = session.get(TasteState, user_id)
         if model is None:
-            model = TasteState(id=1, manual_note="", taste_profile={}, reference_observations=[])
+            model = TasteState(user_id=user_id, manual_note="", taste_profile={}, reference_observations=[])
             session.add(model)
             session.flush()
         return model
 
-    def get_snapshot(self) -> TasteSnapshot:
+    def get_snapshot(self, user_id: int) -> TasteSnapshot:
         with session_scope() as session:
-            return self._snapshot_in_session(session)
+            return self._snapshot_in_session(session, user_id)
 
-    def _snapshot_in_session(self, session: Session) -> TasteSnapshot:
-        state = self.get_taste_state(session)
-        samples = list(session.scalars(select(TasteSampleState).order_by(TasteSampleState.created_at.asc())).all())
+    def _snapshot_in_session(self, session: Session, user_id: int) -> TasteSnapshot:
+        state = self.get_taste_state(session, user_id)
+        samples = list(
+            session.scalars(
+                select(TasteSampleState)
+                .where(TasteSampleState.user_id == user_id)
+                .order_by(TasteSampleState.created_at.asc())
+            ).all()
+        )
         latest_snapshot_model = session.scalar(
-            select(LearningSnapshotState).order_by(LearningSnapshotState.created_at.desc()).limit(1)
+            select(LearningSnapshotState)
+            .where(LearningSnapshotState.user_id == user_id)
+            .order_by(LearningSnapshotState.created_at.desc())
+            .limit(1)
         )
         latest_snapshot = (
             learning_snapshot_to_contract(latest_snapshot_model) if latest_snapshot_model is not None else None
@@ -170,6 +179,7 @@ class TasteService:
 
     def add_wardrobe_image(
         self,
+        user_id: int,
         *,
         file_name: str,
         content: bytes,
@@ -177,7 +187,7 @@ class TasteService:
         clothing_item: ClothingItem,
     ) -> TasteSample:
         with session_scope() as session:
-            require_active_bucket(session, clothing_item)
+            require_active_bucket(session, user_id, clothing_item)
         normalized_name = Path(file_name).name.strip()
         if not normalized_name:
             raise ValueError("Uploaded image must include a file name.")
@@ -200,6 +210,7 @@ class TasteService:
             with session_scope() as session:
                 sample = TasteSampleState(
                     id=f"taste-{uuid4().hex[:8]}",
+                    user_id=user_id,
                     kind="wardrobe",
                     clothing_item=clothing_item,
                     note=note.strip(),
@@ -216,13 +227,13 @@ class TasteService:
                 absolute_path.unlink()
             raise
 
-    def add_offer(self, payload: TasteOfferCreate) -> TasteSample:
+    def add_offer(self, user_id: int, payload: TasteOfferCreate) -> TasteSample:
         if not payload.vinted_url or not payload.vinted_url.strip():
             raise ValueError("Vinted URL is required.")
         with session_scope() as session:
-            require_active_bucket(session, payload.clothing_item)
+            require_active_bucket(session, user_id, payload.clothing_item)
         item_id = VintedClient._item_id_from_url(payload.vinted_url)
-        listing, candidate_id = self._listing_from_candidate(item_id)
+        listing, candidate_id = self._listing_from_candidate(user_id, item_id)
         if listing is None:
             listing = self.vinted_client.fetch_item_by_url(
                 payload.vinted_url,
@@ -234,6 +245,7 @@ class TasteService:
         with session_scope() as session:
             sample = TasteSampleState(
                 id=f"taste-{uuid4().hex[:8]}",
+                user_id=user_id,
                 kind=payload.kind,
                 clothing_item=payload.clothing_item,
                 note=payload.note.strip(),
@@ -262,11 +274,11 @@ class TasteService:
             return taste_sample_to_contract(sample)
 
     @staticmethod
-    def _listing_from_candidate(external_item_id: str) -> tuple[dict | None, str | None]:
+    def _listing_from_candidate(user_id: int, external_item_id: str) -> tuple[dict | None, str | None]:
         with session_scope() as session:
             candidate = session.scalar(
                 select(Candidate)
-                .where(Candidate.external_item_id == external_item_id)
+                .where(Candidate.user_id == user_id, Candidate.external_item_id == external_item_id)
                 .order_by(Candidate.last_seen_at.desc(), Candidate.created_at.desc())
                 .limit(1)
             )
@@ -322,27 +334,30 @@ class TasteService:
             "raw_listing": raw.get("raw_listing", raw),
         }
 
-    def update_sample(self, sample_id: str, payload: TasteSampleUpdate) -> TasteSample:
+    @staticmethod
+    def _require_sample(session: Session, user_id: int, sample_id: str) -> TasteSampleState:
+        sample = session.get(TasteSampleState, sample_id)
+        if sample is None or sample.user_id != user_id:
+            raise KeyError(sample_id)
+        return sample
+
+    def update_sample(self, user_id: int, sample_id: str, payload: TasteSampleUpdate) -> TasteSample:
         with session_scope() as session:
-            sample = session.get(TasteSampleState, sample_id)
-            if sample is None:
-                raise KeyError(sample_id)
+            sample = self._require_sample(session, user_id, sample_id)
             if payload.note is not None:
                 sample.note = payload.note.strip()
             if payload.kind is not None:
                 sample.kind = payload.kind
             if payload.clothing_item is not None:
-                require_active_bucket(session, payload.clothing_item)
+                require_active_bucket(session, user_id, payload.clothing_item)
                 sample.clothing_item = payload.clothing_item
             sample.updated_at = datetime.now(UTC)
             session.flush()
             return taste_sample_to_contract(sample)
 
-    def delete_sample(self, sample_id: str) -> TasteSample:
+    def delete_sample(self, user_id: int, sample_id: str) -> TasteSample:
         with session_scope() as session:
-            sample = session.get(TasteSampleState, sample_id)
-            if sample is None:
-                raise KeyError(sample_id)
+            sample = self._require_sample(session, user_id, sample_id)
             result = taste_sample_to_contract(sample)
             session.delete(sample)
             session.flush()
@@ -354,11 +369,9 @@ class TasteService:
                 path.unlink()
         return result
 
-    def sample_image_path(self, sample_id: str) -> Path:
+    def sample_image_path(self, user_id: int, sample_id: str) -> Path:
         with session_scope() as session:
-            sample = session.get(TasteSampleState, sample_id)
-            if sample is None:
-                raise KeyError(sample_id)
+            sample = self._require_sample(session, user_id, sample_id)
             if not sample.storage_path:
                 raise FileNotFoundError(sample_id)
 
@@ -372,14 +385,14 @@ class TasteService:
                 raise FileNotFoundError(sample_id)
             return path
 
-    def update_manual_note(self, payload: TasteManualNoteUpdate) -> TasteSnapshot:
+    def update_manual_note(self, user_id: int, payload: TasteManualNoteUpdate) -> TasteSnapshot:
         with session_scope() as session:
-            state = self.get_taste_state(session)
+            state = self.get_taste_state(session, user_id)
             now = datetime.now(UTC)
             state.manual_note = payload.text.strip()
             state.manual_note_updated_at = now
             session.flush()
-            return self._snapshot_in_session(session)
+            return self._snapshot_in_session(session, user_id)
 
     def upsert_candidate_feedback_sample(
         self,
@@ -400,7 +413,7 @@ class TasteService:
         now = datetime.now(UTC)
         sample = session.scalar(select(TasteSampleState).where(TasteSampleState.candidate_id == candidate.id).limit(1))
         if sample is None:
-            sample = TasteSampleState(id=f"taste-{uuid4().hex[:8]}", created_at=now)
+            sample = TasteSampleState(id=f"taste-{uuid4().hex[:8]}", user_id=candidate.user_id, created_at=now)
             session.add(sample)
         sample.kind = kind
         sample.clothing_item = candidate.clothing_item
@@ -834,25 +847,32 @@ class TasteService:
         self,
         session: Session | None = None,
         *,
+        user_id: int,
         clothing_item: ClothingItem | None = None,
     ) -> TasteProfile:
         if session is not None:
-            snapshot = self._snapshot_in_session(session)
+            snapshot = self._snapshot_in_session(session, user_id)
             return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot)
         with session_scope() as owned_session:
-            snapshot = self._snapshot_in_session(owned_session)
+            snapshot = self._snapshot_in_session(owned_session, user_id)
             return self._profile_for_item(snapshot.taste_profile, clothing_item) if snapshot.taste_profile else self._fallback_taste_profile(snapshot)
 
     def latest_labeled_anchors(
         self,
         *,
+        user_id: int,
         clothing_item: ClothingItem | None = None,
         limit: int = 5,
     ) -> tuple[list[LabeledExample], list[LabeledExample]]:
         with session_scope() as session:
             # Only feedback newer than the profile: everything older is already part of it.
-            profiled_at = as_aware(self.get_taste_state(session).last_recomputed_at)
-            query = select(TasteSampleState).order_by(TasteSampleState.updated_at.desc()).limit(limit * 8)
+            profiled_at = as_aware(self.get_taste_state(session, user_id).last_recomputed_at)
+            query = (
+                select(TasteSampleState)
+                .where(TasteSampleState.user_id == user_id)
+                .order_by(TasteSampleState.updated_at.desc())
+                .limit(limit * 8)
+            )
             if profiled_at is not None:
                 query = query.where(TasteSampleState.updated_at > profiled_at)
             samples = session.scalars(query).all()
@@ -867,10 +887,10 @@ class TasteService:
                     disliked.append(self._sample_to_example(sample))
             return liked, disliked
 
-    def get_judgment_prompt_preview(self, clothing_item: ClothingItem) -> JudgmentPromptPreview:
-        profile = self.active_taste_profile(clothing_item=clothing_item)
-        liked, disliked = self.latest_labeled_anchors(clothing_item=clothing_item)
-        snapshot = self.get_snapshot()
+    def get_judgment_prompt_preview(self, user_id: int, clothing_item: ClothingItem) -> JudgmentPromptPreview:
+        profile = self.active_taste_profile(user_id=user_id, clothing_item=clothing_item)
+        liked, disliked = self.latest_labeled_anchors(user_id=user_id, clothing_item=clothing_item)
+        snapshot = self.get_snapshot(user_id)
         manual_note = snapshot.manual_note.text if snapshot.manual_note.text.strip() else None
         prompt = self.taste_client.build_judgment_prompt_preview(
             taste_profile=profile,
@@ -887,12 +907,12 @@ class TasteService:
             token_count=token_count,
         )
 
-    def run_auto_recompute_if_due(self) -> TasteRecomputeResult | None:
+    def run_auto_recompute_if_due(self, user_id: int) -> TasteRecomputeResult | None:
         """Rebuild the profile when enough feedback has arrived since the last one (see the
         AUTO_RECOMPUTE_* constants). The first profile is always built by hand."""
         now = datetime.now(UTC)
         with session_scope() as session:
-            state = self.get_taste_state(session)
+            state = self.get_taste_state(session, user_id)
             profiled_at = as_aware(state.last_recomputed_at)
             last_attempt = as_aware(state.recompute_finished_at)
             if not state.taste_profile or profiled_at is None or state.recompute_status == "running":
@@ -903,32 +923,34 @@ class TasteService:
             ):
                 return None
             changes = session.scalar(
-                select(func.count()).select_from(TasteSampleState).where(TasteSampleState.updated_at > profiled_at)
+                select(func.count())
+                .select_from(TasteSampleState)
+                .where(TasteSampleState.user_id == user_id, TasteSampleState.updated_at > profiled_at)
             ) or 0
             note_updated_at = as_aware(state.manual_note_updated_at)
             if note_updated_at is not None and note_updated_at > profiled_at:
                 changes += 1
             # A new bucket or an edited bucket definition changes what the profile must cover.
             changes += session.scalar(
-                select(func.count()).select_from(Bucket).where(Bucket.updated_at > profiled_at)
+                select(func.count()).select_from(Bucket).where(Bucket.user_id == user_id, Bucket.updated_at > profiled_at)
             ) or 0
         if changes == 0 or (changes < AUTO_RECOMPUTE_MIN_CHANGES and now - profiled_at < AUTO_RECOMPUTE_MAX_WAIT):
             return None
-        claim = self.claim_recompute(source="auto")
+        claim = self.claim_recompute(user_id, source="auto")
         if not claim.claimed or claim.job_id is None:
             return None
-        logger.info("automatic taste recompute started changes=%d job=%s", changes, claim.job_id)
-        return self.run_claimed_recompute(claim.job_id)
+        logger.info("automatic taste recompute started user=%d changes=%d job=%s", user_id, changes, claim.job_id)
+        return self.run_claimed_recompute(user_id, claim.job_id)
 
-    def claim_recompute(self, *, source: str = "api") -> TasteRecomputeClaim:
+    def claim_recompute(self, user_id: int, *, source: str = "api") -> TasteRecomputeClaim:
         now = datetime.now(UTC)
         stale_cutoff = now - TASTE_RECOMPUTE_STALE_AFTER
         job_id = f"taste-{source}-{uuid4().hex[:8]}"
         with session_scope() as session:
-            self.get_taste_state(session)
+            self.get_taste_state(session, user_id)
             result = session.execute(
                 update(TasteState)
-                .where(TasteState.id == 1)
+                .where(TasteState.user_id == user_id)
                 .where(
                     (TasteState.recompute_status != "running")
                     | (TasteState.recompute_started_at == None)  # noqa: E711
@@ -945,7 +967,7 @@ class TasteService:
             if result.rowcount == 1:
                 return TasteRecomputeClaim(claimed=True, job_id=job_id, started_at=now)
 
-            state = self.get_taste_state(session)
+            state = self.get_taste_state(session, user_id)
             return TasteRecomputeClaim(
                 claimed=False,
                 job_id=None,
@@ -956,6 +978,7 @@ class TasteService:
 
     def _finish_recompute(
         self,
+        user_id: int,
         *,
         job_id: str,
         status: str,
@@ -980,16 +1003,16 @@ class TasteService:
         with session_scope() as session:
             session.execute(
                 update(TasteState)
-                .where(TasteState.id == 1)
+                .where(TasteState.user_id == user_id)
                 .where(TasteState.recompute_job_id == job_id)
                 .values(**values)
             )
 
-    def run_claimed_recompute(self, job_id: str) -> TasteRecomputeResult:
+    def run_claimed_recompute(self, user_id: int, job_id: str) -> TasteRecomputeResult:
         try:
-            result = self._run_recompute_unlocked(job_id)
+            result = self._run_recompute_unlocked(user_id, job_id)
         except Exception as exc:
-            self._finish_recompute(job_id=job_id, status="failed", error=str(exc)[:1000])
+            self._finish_recompute(user_id, job_id=job_id, status="failed", error=str(exc)[:1000])
             errors = getattr(self, "errors", None)
             if errors is not None:
                 errors.record(
@@ -997,21 +1020,21 @@ class TasteService:
                     operation="recompute",
                     summary="Taste recompute failed",
                     exception=exc,
-                    details={"job_id": job_id},
+                    details={"job_id": job_id, "user_id": user_id},
                     related_entity_type="taste_recompute",
                     related_entity_id=job_id,
                 )
             raise
-        self._finish_recompute(job_id=job_id, status="succeeded", result=result)
-        return result.model_copy(update={"snapshot": self.get_snapshot()})
+        self._finish_recompute(user_id, job_id=job_id, status="succeeded", result=result)
+        return result.model_copy(update={"snapshot": self.get_snapshot(user_id)})
 
-    def recompute(self) -> TasteRecomputeResult:
-        claim = self.claim_recompute(source="api")
+    def recompute(self, user_id: int) -> TasteRecomputeResult:
+        claim = self.claim_recompute(user_id, source="api")
         if not claim.claimed or claim.job_id is None:
             raise TasteRecomputeAlreadyRunning(job_id=claim.running_job_id, started_at=claim.running_started_at)
-        return self.run_claimed_recompute(claim.job_id)
+        return self.run_claimed_recompute(user_id, claim.job_id)
 
-    def cancel_recompute(self) -> TasteSnapshot:
+    def cancel_recompute(self, user_id: int) -> TasteSnapshot:
         """Force-clears a running recompute claim so the UI can retry immediately.
 
         There is no cooperative checkpoint inside `_run_recompute_unlocked` (unlike search
@@ -1023,7 +1046,7 @@ class TasteService:
         with session_scope() as session:
             session.execute(
                 update(TasteState)
-                .where(TasteState.id == 1)
+                .where(TasteState.user_id == user_id)
                 .where(TasteState.recompute_status == "running")
                 .values(
                     recompute_status="cancelled",
@@ -1033,9 +1056,9 @@ class TasteService:
                     recompute_error="Cancelled by user.",
                 )
             )
-        return self.get_snapshot()
+        return self.get_snapshot(user_id)
 
-    def _run_recompute_unlocked(self, job_id: str) -> TasteRecomputeResult:
+    def _run_recompute_unlocked(self, user_id: int, job_id: str) -> TasteRecomputeResult:
         started = perf_counter()
         accumulated: dict[str, float] = {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
 
@@ -1053,17 +1076,20 @@ class TasteService:
             )
 
         with session_scope() as session:
-            state = self.get_taste_state(session)
-            db_settings = session.get(AppSettingsState, 1)
-            if db_settings is None:
-                raise RuntimeError("Settings row is missing from SQLite storage")
+            state = self.get_taste_state(session, user_id)
             vision_model = self.settings.openai_vision_model
             # The new profile covers the samples as of now; feedback arriving during the build
             # stays newer than `last_recomputed_at`, so it remains an anchor and counts as a change.
             evidence_at = datetime.now(UTC)
-            samples = session.scalars(select(TasteSampleState).order_by(TasteSampleState.created_at.asc())).all()
-            buckets = bucket_records(session)
-            bucket_labels = {bucket.key: bucket.label for bucket in bucket_records(session, include_archived=True)}
+            samples = session.scalars(
+                select(TasteSampleState)
+                .where(TasteSampleState.user_id == user_id)
+                .order_by(TasteSampleState.created_at.asc())
+            ).all()
+            buckets = bucket_records(session, user_id)
+            bucket_labels = {
+                bucket.key: bucket.label for bucket in bucket_records(session, user_id, include_archived=True)
+            }
             previous_profile = TasteProfile.model_validate(state.taste_profile) if state.taste_profile else None
             image_inputs = self._sample_image_inputs(samples)
             samples_by_id = {sample.id: sample for sample in samples}
@@ -1197,7 +1223,7 @@ class TasteService:
             # returning late must not clobber a result that superseded it.
             result_row = session.execute(
                 update(TasteState)
-                .where(TasteState.id == 1)
+                .where(TasteState.user_id == user_id)
                 .where(TasteState.recompute_job_id == job_id)
                 .values(
                     taste_profile=taste_profile.model_dump(mode="json"),
@@ -1209,6 +1235,7 @@ class TasteService:
                 session.add(
                     LearningSnapshotState(
                         id=f"learn-{uuid4().hex[:8]}",
+                        user_id=user_id,
                         created_at=now,
                         reason="Recomputed taste profile from wardrobe samples, offer feedback, and manual taste note.",
                         changed_weights=[],
@@ -1239,7 +1266,7 @@ class TasteService:
                 output_tokens,
             )
             return TasteRecomputeResult(
-                snapshot=self._snapshot_in_session(session),
+                snapshot=self._snapshot_in_session(session, user_id),
                 cost_usd=float(accumulated["cost_usd"]),
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

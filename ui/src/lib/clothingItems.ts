@@ -2,13 +2,15 @@ import { useQuery } from '@tanstack/react-query';
 
 import { api } from './api';
 import { queryKeys } from './queryKeys';
+import { useUserId } from './useUserId';
 import type { BucketRecord, ClothingItem } from '../types';
 
 export type ClothingItemOption = { value: ClothingItem; label: string; description: string };
 
-// Buckets come from /api/buckets. Archived ones keep their label for history but are not offered as choices.
+// Buckets come from the profile's bucket list. Archived ones keep their label for history but are not offered as choices.
 export function useBuckets() {
-  const query = useQuery({ queryKey: queryKeys.buckets, queryFn: api.getBuckets });
+  const userId = useUserId();
+  const query = useQuery({ queryKey: queryKeys.buckets(userId), queryFn: () => api.getBuckets(userId) });
   const all: BucketRecord[] = query.data ?? [];
   const active = all.filter((bucket) => !bucket.archived);
   const clothingItems: ClothingItemOption[] = active.map((bucket) => ({

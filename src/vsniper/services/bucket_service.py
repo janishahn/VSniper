@@ -62,23 +62,23 @@ def bucket_to_record(model: Bucket, catalog: dict[int, VintedCatalogNode]) -> Bu
     )
 
 
-def bucket_records(session: Session, *, include_archived: bool = False) -> list[BucketRecord]:
-    query = select(Bucket).order_by(Bucket.position, Bucket.created_at)
+def bucket_records(session: Session, user_id: int, *, include_archived: bool = False) -> list[BucketRecord]:
+    query = select(Bucket).where(Bucket.user_id == user_id).order_by(Bucket.position, Bucket.created_at)
     if not include_archived:
         query = query.where(Bucket.archived.is_(False))
     catalog = _catalog()
     return [bucket_to_record(model, catalog) for model in session.scalars(query)]
 
 
-def require_bucket(session: Session, key: str) -> BucketRecord:
-    model = session.get(Bucket, key)
+def require_bucket(session: Session, user_id: int, key: str) -> BucketRecord:
+    model = session.get(Bucket, (user_id, key))
     if model is None:
         raise BucketNotFound(key)
     return bucket_to_record(model, _catalog())
 
 
-def require_active_bucket(session: Session, key: str) -> BucketRecord:
-    model = session.get(Bucket, key)
+def require_active_bucket(session: Session, user_id: int, key: str) -> BucketRecord:
+    model = session.get(Bucket, (user_id, key))
     if model is None:
         raise BucketInvalid(f"Unknown bucket {key}.")
     bucket = bucket_to_record(model, _catalog())
@@ -95,9 +95,9 @@ class BucketService:
     def _cache_dir(self):
         return self.settings.resolve_path(self.settings.cache_dir)
 
-    def all(self) -> list[BucketRecord]:
+    def all(self, user_id: int) -> list[BucketRecord]:
         with session_scope() as session:
-            return bucket_records(session, include_archived=True)
+            return bucket_records(session, user_id, include_archived=True)
 
     def catalog(self) -> list[VintedCatalogNode]:
         return load_catalog(self._cache_dir())
@@ -124,24 +124,26 @@ class BucketService:
             "sizes": [size.model_dump() for size in {size.id: size for size in payload.sizes}.values()],
         }
 
-    def create(self, payload: BucketCreate) -> BucketRecord:
+    def create(self, user_id: int, payload: BucketCreate) -> BucketRecord:
         fields = self._validated_fields(payload)
         now = datetime.now(UTC)
         with session_scope() as session:
-            if session.get(Bucket, payload.key) is not None:
+            if session.get(Bucket, (user_id, payload.key)) is not None:
                 raise BucketInvalid(f"A bucket with the key {payload.key} already exists.")
-            position = (session.scalar(select(func.max(Bucket.position))) or 0) + 1
-            model = Bucket(key=payload.key, position=position, archived=False, created_at=now, updated_at=now, **fields)
+            position = (session.scalar(select(func.max(Bucket.position)).where(Bucket.user_id == user_id)) or 0) + 1
+            model = Bucket(
+                user_id=user_id, key=payload.key, position=position, archived=False, created_at=now, updated_at=now, **fields
+            )
             session.add(model)
             session.flush()
             record = bucket_to_record(model, _catalog())
-            session.add(Search(**canonical_search_values(record, now=now)))
+            session.add(Search(**canonical_search_values(user_id, record, now=now)))
             return record
 
-    def update(self, key: str, payload: BucketUpdate) -> BucketRecord:
+    def update(self, user_id: int, key: str, payload: BucketUpdate) -> BucketRecord:
         fields = self._validated_fields(payload)
         with session_scope() as session:
-            model = session.get(Bucket, key)
+            model = session.get(Bucket, (user_id, key))
             if model is None:
                 raise BucketNotFound(key)
             taste_fields_changed = any(getattr(model, name) != fields[name] for name in ("label", "description", "catalog_ids"))
@@ -153,7 +155,7 @@ class BucketService:
             session.flush()
             record = bucket_to_record(model, _catalog())
 
-            search = session.scalar(select(Search).where(Search.clothing_item == key))
+            search = session.scalar(select(Search).where(Search.user_id == user_id, Search.clothing_item == key))
             if search is not None:
                 search.name = record.label
                 if record.archived:
@@ -162,19 +164,19 @@ class BucketService:
                 search.filters = [item.model_dump(mode="json") for item in ensure_category_filter(filters, record, strict=False)]
             return record
 
-    def delete(self, key: str) -> BucketDeleteResult:
+    def delete(self, user_id: int, key: str) -> BucketDeleteResult:
         """Delete a bucket without history; archive one that has samples or candidates."""
         with session_scope() as session:
-            model = session.get(Bucket, key)
+            model = session.get(Bucket, (user_id, key))
             if model is None:
                 raise BucketNotFound(key)
             has_history = session.scalar(
                 select(
-                    exists().where(TasteSampleState.clothing_item == key)
-                    | exists().where(Candidate.clothing_item == key)
+                    exists().where(TasteSampleState.user_id == user_id, TasteSampleState.clothing_item == key)
+                    | exists().where(Candidate.user_id == user_id, Candidate.clothing_item == key)
                 )
             )
-            search = session.scalar(select(Search).where(Search.clothing_item == key))
+            search = session.scalar(select(Search).where(Search.user_id == user_id, Search.clothing_item == key))
             if has_history:
                 model.archived = True
                 if search is not None:

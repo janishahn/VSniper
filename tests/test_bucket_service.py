@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import Search, TasteSampleState
+from vsniper.db.models import Search, TasteSampleState, User
 from vsniper.domain.contracts import BucketCategory, BucketCreate, BucketRecord, BucketUpdate, SearchFilter
 from vsniper.integrations.openai.client import OpenAITasteClient
 from vsniper.services.bucket_service import BucketService, bucket_records
@@ -19,6 +19,9 @@ def _service(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'buckets.db'}", future=True)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    with factory() as session:
+        session.add(User(id=1, name="Profile 1"))
+        session.commit()
 
     @contextmanager
     def fake_session_scope():
@@ -46,7 +49,7 @@ def _search(factory, key: str) -> Search | None:
 def test_a_new_bucket_gets_a_disabled_search_over_its_categories(monkeypatch, tmp_path) -> None:
     service, factory = _service(monkeypatch, tmp_path)
 
-    bucket = service.create(BucketCreate(key="kleider", label="Kleider", description="Dresses.", catalog_ids=[10, 1055]))
+    bucket = service.create(1, BucketCreate(key="kleider", label="Kleider", description="Dresses.", catalog_ids=[10, 1055]))
 
     assert [category.path for category in bucket.categories] == ["Damen > Kleidung > Kleider", "Damen > Kleidung > Kleider > Maxikleider"]
     search = _search(factory, "kleider")
@@ -54,27 +57,27 @@ def test_a_new_bucket_gets_a_disabled_search_over_its_categories(monkeypatch, tm
     assert SearchFilter.model_validate(search.filters[0]).values == ["10", "1055"]
 
     # Narrowing the bucket drops categories the search may no longer use.
-    service.update("kleider", BucketUpdate(label="Kleider", description="Dresses.", catalog_ids=[1055]))
+    service.update(1, "kleider", BucketUpdate(label="Kleider", description="Dresses.", catalog_ids=[1055]))
     assert SearchFilter.model_validate(_search(factory, "kleider").filters[0]).values == ["1055"]
 
 
 def test_delete_removes_an_unused_bucket_and_archives_one_with_history(monkeypatch, tmp_path) -> None:
     service, factory = _service(monkeypatch, tmp_path)
-    service.create(BucketCreate(key="kleider", label="Kleider", catalog_ids=[10]))
-    service.create(BucketCreate(key="ringe", label="Ringe", catalog_ids=[553]))
+    service.create(1, BucketCreate(key="kleider", label="Kleider", catalog_ids=[10]))
+    service.create(1, BucketCreate(key="ringe", label="Ringe", catalog_ids=[553]))
     with factory() as session:
-        session.add(TasteSampleState(id="sample-1", kind="wardrobe", clothing_item="ringe"))
-        session.get(Search, "search-ringe").enabled = True
+        session.add(TasteSampleState(id="sample-1", user_id=1, kind="wardrobe", clothing_item="ringe"))
+        session.get(Search, "search-1-ringe").enabled = True
         session.commit()
 
-    assert service.delete("kleider").outcome == "deleted"
-    assert service.delete("ringe").outcome == "archived"
+    assert service.delete(1, "kleider").outcome == "deleted"
+    assert service.delete(1, "ringe").outcome == "archived"
 
     assert _search(factory, "kleider") is None
     assert _search(factory, "ringe").enabled is False
     with factory() as session:
-        assert bucket_records(session) == []
-        assert [bucket.key for bucket in bucket_records(session, include_archived=True)] == ["ringe"]
+        assert bucket_records(session, 1) == []
+        assert [bucket.key for bucket in bucket_records(session, 1, include_archived=True)] == ["ringe"]
 
 
 def test_taste_profile_prompt_and_schema_follow_the_active_buckets() -> None:

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from vsniper.api.routes import buckets, candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram
+from vsniper.api.routes import buckets, candidates, data_management, errors, health, operations, searches, settings, stats, storage, taste, telegram, users
 from vsniper.core.config import get_settings
 from vsniper.core.database import configure_app_logging
 from vsniper.core.state import get_state
@@ -59,6 +59,7 @@ app.include_router(data_management.router, prefix="/api")
 app.include_router(operations.router, prefix="/api")
 app.include_router(storage.router, prefix="/api")
 app.include_router(errors.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
 
 _ERROR_RECORDED_HEADER = "X-Vsniper-Error-Recorded"
 

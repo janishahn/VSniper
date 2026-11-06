@@ -158,6 +158,7 @@ class CandidateService:
 
     def page(
         self,
+        user_id: int,
         *,
         clothing_item: str | None = None,
         stage: str | None = None,
@@ -176,7 +177,7 @@ class CandidateService:
         with session_scope() as session:
             # Filters shared by the page query and its matching total count.
             filters = []
-            tab_filters = []
+            tab_filters = [Candidate.user_id == user_id]
             if clothing_item and clothing_item != "all":
                 tab_filters.append(Candidate.clothing_item == clothing_item)
             filters.extend(tab_filters)
@@ -216,7 +217,9 @@ class CandidateService:
 
             item_counts: dict[str, int] = {}
             for item_value, count in session.execute(
-                select(Candidate.clothing_item, func.count()).group_by(Candidate.clothing_item)
+                select(Candidate.clothing_item, func.count())
+                .where(Candidate.user_id == user_id)
+                .group_by(Candidate.clothing_item)
             ).all():
                 item_counts[item_value] = int(count)
             item_counts["all"] = sum(item_counts.values())
@@ -232,17 +235,19 @@ class CandidateService:
                 item_counts=item_counts,
             )
 
-    def record_feedback(self, candidate_id: str, payload: FeedbackPayload) -> CandidateRecord:
+    def record_feedback(self, user_id: int, candidate_id: str, payload: FeedbackPayload) -> CandidateRecord:
         if payload.verdict is None:
             if not payload.comment.strip():
                 raise ValueError("A verdict or non-empty comment is required.")
             candidate_record, _ = self.apply_note(
+                user_id,
                 candidate_id,
                 comment=payload.comment,
                 skip_if_unchanged=payload.skip_if_unchanged,
             )
         else:
             candidate_record, _ = self.apply_feedback(
+                user_id,
                 candidate_id,
                 verdict=payload.verdict,
                 comment=payload.comment,
@@ -252,6 +257,7 @@ class CandidateService:
 
     def apply_feedback(
         self,
+        user_id: int,
         candidate_id: str,
         *,
         verdict: Literal["like", "dislike"],
@@ -259,6 +265,7 @@ class CandidateService:
         skip_if_unchanged: bool = False,
     ) -> tuple[CandidateRecord, LearningSnapshot | None]:
         return self._apply_learning_signal(
+            user_id,
             candidate_id,
             verdict=verdict,
             comment=comment,
@@ -267,12 +274,14 @@ class CandidateService:
 
     def apply_note(
         self,
+        user_id: int,
         candidate_id: str,
         *,
         comment: str,
         skip_if_unchanged: bool = False,
     ) -> tuple[CandidateRecord, LearningSnapshot | None]:
         return self._apply_learning_signal(
+            user_id,
             candidate_id,
             verdict=None,
             comment=comment,
@@ -281,6 +290,7 @@ class CandidateService:
 
     def _apply_learning_signal(
         self,
+        user_id: int,
         candidate_id: str,
         *,
         verdict: Literal["like", "dislike"] | None,
@@ -294,7 +304,7 @@ class CandidateService:
         # readable after the session closes, so the VLM call below can use them while detached.
         with session_scope() as session:
             candidate_model = session.get(Candidate, candidate_id)
-            if candidate_model is None:
+            if candidate_model is None or candidate_model.user_id != user_id:
                 raise KeyError(candidate_id)
             cleaned_comment = comment.strip() if comment is not None else None
             current_comment = (candidate_model.feedback_comment or "").strip()
@@ -346,14 +356,14 @@ class CandidateService:
         trace = candidate_model.score_trace or {}
         if "score_10" not in trace or "threshold" not in trace:
             return None
-        if not self.preferences.get_taste_state(session).taste_profile:
+        if not self.preferences.get_taste_state(session, candidate_model.user_id).taste_profile:
             return None
         return FeedbackContext(
             verdict=verdict,
             judge_score=int(trace["score_10"]),
             alert_threshold=round(float(trace["threshold"]) * 100),
             taste_profile=self.preferences.active_taste_profile(
-                session, clothing_item=candidate_model.clothing_item
+                session, user_id=candidate_model.user_id, clothing_item=candidate_model.clothing_item
             ),
         )
 
@@ -413,6 +423,7 @@ class CandidateService:
         session.add(
             LearningSnapshotState(
                 id=snapshot.id,
+                user_id=candidate_model.user_id,
                 created_at=snapshot.created_at,
                 reason=snapshot.reason,
                 changed_weights=[],
@@ -427,35 +438,41 @@ class CandidateService:
         session.refresh(candidate_model)
         return candidate_to_contract(candidate_model), snapshot
 
-    def get_dashboard_stats(self) -> DashboardStats:
+    def get_dashboard_stats(self, user_id: int) -> DashboardStats:
         # Anchor "today" to the user's local day (Europe/Berlin, DST-aware), then query in UTC.
         # Using UTC midnight would shift the boundary 1-2h and miscount around midnight.
         local_now = datetime.now(_LOCAL_TZ)
         today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
         with session_scope() as session:
             active_searches = session.scalar(
-                select(func.count()).where(Search.enabled.is_(True))
+                select(func.count()).where(Search.user_id == user_id, Search.enabled.is_(True))
             ) or 0
             candidates_today = session.scalar(
-                select(func.count()).where(Candidate.created_at >= today_start)
+                select(func.count()).where(Candidate.user_id == user_id, Candidate.created_at >= today_start)
             ) or 0
             likes = session.scalar(
-                select(func.count()).where(Candidate.feedback == "like")
+                select(func.count()).where(Candidate.user_id == user_id, Candidate.feedback == "like")
             ) or 0
             dislikes = session.scalar(
-                select(func.count()).where(Candidate.feedback == "dislike")
+                select(func.count()).where(Candidate.user_id == user_id, Candidate.feedback == "dislike")
             ) or 0
             avg_alert_score_raw = session.scalar(
-                select(func.avg(Candidate.final_score)).where(Candidate.decision == "alert")
+                select(func.avg(Candidate.final_score)).where(Candidate.user_id == user_id, Candidate.decision == "alert")
             )
             pending_deliveries = session.scalar(
-                select(func.count()).where(AlertDeliveryState.status == "pending")
+                select(func.count())
+                .select_from(AlertDeliveryState)
+                .join(Candidate, Candidate.id == AlertDeliveryState.candidate_id)
+                .where(Candidate.user_id == user_id, AlertDeliveryState.status == "pending")
             ) or 0
             failed_deliveries = session.scalar(
-                select(func.count()).where(AlertDeliveryState.status == "failed")
+                select(func.count())
+                .select_from(AlertDeliveryState)
+                .join(Candidate, Candidate.id == AlertDeliveryState.candidate_id)
+                .where(Candidate.user_id == user_id, AlertDeliveryState.status == "failed")
             ) or 0
             last_successful_scan_at = session.scalar(
-                select(func.max(Search.last_run_at)).where(Search.last_run_at.isnot(None))
+                select(func.max(Search.last_run_at)).where(Search.user_id == user_id, Search.last_run_at.isnot(None))
             )
             return DashboardStats(
                 active_searches=active_searches,
@@ -478,13 +495,15 @@ class CandidateService:
         "all": None,
     }
 
-    def get_score_distribution(self, window: str = "7d") -> ScoreDistribution:
+    def get_score_distribution(self, user_id: int, window: str = "7d") -> ScoreDistribution:
         """Histogram of judge scores (1-100, derived from the stored 0-1 `final_score`) over the
         given time window. Only successfully judged candidates count; failed judgments store
         final_score=0.0 and would otherwise pile up in the lowest bin."""
         delta = self._SCORE_DISTRIBUTION_WINDOWS.get(window, self._SCORE_DISTRIBUTION_WINDOWS["7d"])
         with session_scope() as session:
-            query = select(Candidate.final_score).where(Candidate.grading_stage == "vlm_judged")
+            query = select(Candidate.final_score).where(
+                Candidate.user_id == user_id, Candidate.grading_stage == "vlm_judged"
+            )
             if delta is not None:
                 query = query.where(Candidate.created_at >= datetime.now(UTC) - delta)
             scores = session.scalars(query).all()

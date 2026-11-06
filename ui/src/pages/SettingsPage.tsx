@@ -5,7 +5,6 @@ import { api } from '../lib/api';
 import type { SettingsSavePayload } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
-import { RefreshCw, Send } from 'lucide-react';
 
 import { DecimalInput } from '../components/DecimalInput';
 import { ErrorText } from '../components/ErrorText';
@@ -22,15 +21,9 @@ function parsePositiveNumber(value: string, fallback: number): number {
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
-  // `telegramPreview` is a POST, so it must be a mutation rather than a passive
-  // query (a query would re-fire the side-effecting endpoint on focus/refetch).
-  const previewMutation = useMutation({ mutationFn: api.telegramPreview });
-  const previewRequested = useRef(false);
 
   const [form, setForm] = useState<SettingsFormState>({
     telegram_bot_token: '',
-    telegram_chat_id: '',
-    alert_threshold: 9,
     scan_interval_seconds: 1800,
   });
   const formDirty = useRef(false);
@@ -49,19 +42,9 @@ export function SettingsPage() {
     if (!settingsQuery.data || formDirty.current) return;
     setForm({
       telegram_bot_token: settingsQuery.data.telegram_bot_token,
-      telegram_chat_id: settingsQuery.data.telegram_chat_id,
-      alert_threshold: settingsQuery.data.alert_threshold,
       scan_interval_seconds: settingsQuery.data.scan_interval_seconds,
     });
   }, [settingsQuery.data]);
-
-  useEffect(() => {
-    // Fetch the alert preview once on mount (guarded against React 18 strict-mode
-    // double-invocation). The user can refresh it on demand via the button below.
-    if (previewRequested.current) return;
-    previewRequested.current = true;
-    previewMutation.mutate();
-  }, []);
 
   const saveMutation = useMutation({
     mutationFn: api.saveSettings,
@@ -73,18 +56,6 @@ export function SettingsPage() {
     },
   });
 
-  const sendTestMutation = useMutation({
-    mutationFn: async () => {
-      const saved = await api.saveSettings(formRef.current);
-      const sent = await api.sendTelegramTest();
-      return { saved, sent };
-    },
-    onSuccess: () => {
-      setFormDirty(false);
-      queryClient.invalidateQueries({ queryKey: queryKeys.settings });
-    },
-  });
-
   const header = (
     <PageHeader
       title="Settings"
@@ -92,8 +63,6 @@ export function SettingsPage() {
     />
   );
 
-  // Only the settings form is essential to render. The Telegram preview is
-  // supplementary — they must not block editing the config that fixes them.
   if (settingsQuery.isLoading) return <div className="page">{header}<Loading label="Loading settings…" /></div>;
   if (settingsQuery.isError || !settingsQuery.data) {
     return <div className="page">{header}<ErrorText error={settingsQuery.error ?? 'Could not load settings.'} /></div>;
@@ -122,8 +91,8 @@ export function SettingsPage() {
       <div>
         <section className="settings-block" aria-labelledby="scan-title">
           <div>
-            <h2 id="scan-title">Scanning and alerts</h2>
-            <p className="section-sub">Per-search overrides for the threshold live on the Searches page.</p>
+            <h2 id="scan-title">Scanning</h2>
+            <p className="section-sub">Each profile sets its own alert threshold on the Profiles page.</p>
           </div>
           <div className="settings-body">
             <div className="fields-2">
@@ -144,20 +113,6 @@ export function SettingsPage() {
                 <span className="hint">
                   Searches are spread evenly across this window to reduce blocking: 6 searches over 30 minutes means one every 5.
                 </span>
-              </label>
-              <label className="field">
-                Alert threshold
-                <span className="affix">
-                  <DecimalInput
-                    type="text"
-                    inputMode="numeric"
-                    value={String(form.alert_threshold)}
-                    normalize={(raw) => String(Math.max(1, Math.min(100, Math.round(parsePositiveNumber(raw, form.alert_threshold)))))}
-                    onCommit={(normalized) => set('alert_threshold', Number(normalized))}
-                  />
-                  <span className="muted">of 100</span>
-                </span>
-                <span className="hint">Listings scoring this or higher are sent to Telegram.</span>
               </label>
             </div>
           </div>
@@ -181,49 +136,10 @@ export function SettingsPage() {
                   placeholder="123456789:AA…"
                 />
               </label>
-              <label className="field">
-                Chat ID
-                <input
-                  value={form.telegram_chat_id}
-                  onChange={(e) => set('telegram_chat_id', e.target.value)}
-                  placeholder="523167654 or -100…"
-                />
-              </label>
             </div>
-            <div className="row">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => sendTestMutation.mutate()}
-                disabled={sendTestMutation.isPending || saveMutation.isPending}
-              >
-                <Send size={15} aria-hidden="true" />
-                {sendTestMutation.isPending ? 'Sending…' : dirty ? 'Save and send test alert' : 'Send test alert'}
-              </button>
-              {sendTestMutation.isSuccess ? (
-                <span className="success-text">Sent to chat {sendTestMutation.data.sent.chat_id}</span>
-              ) : null}
-            </div>
-            <ErrorText error={sendTestMutation.error} prefix="Test alert failed" />
-
-            <div className="stack">
-              <div className="row-between" style={{ alignItems: 'center' }}>
-                <span className="field">Alert preview</span>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => previewMutation.mutate()}
-                  disabled={previewMutation.isPending}
-                >
-                  <RefreshCw size={13} aria-hidden="true" />
-                  {previewMutation.isPending ? 'Refreshing…' : 'Refresh'}
-                </button>
-              </div>
-              {previewMutation.data
-                ? <pre className="telegram-preview">{previewMutation.data.preview}</pre>
-                : <p className="state-line">{previewMutation.isPending ? 'Loading preview…' : 'No preview available.'}</p>}
-              <ErrorText error={previewMutation.error} prefix="Preview failed" />
-            </div>
+            <p className="hint">
+              The chats allowed to use the bot are listed in TELEGRAM_CHAT_IDS in the .env file. Each one gets its own profile.
+            </p>
           </div>
         </section>
       </div>

@@ -35,6 +35,7 @@ from vsniper.services._mapping import (
 from vsniper.services.candidate_service import CandidateService
 from vsniper.services.error_service import ErrorService
 from vsniper.services.taste_service import TasteService
+from vsniper.services.user_service import UserService
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +55,16 @@ BORDERLINE_MARGIN = 15
 @dataclass(frozen=True)
 class TelegramRuntimeConfig:
     bot_token: str
-    chat_id: str
+
+    @property
+    def configured(self) -> bool:
+        return is_value_configured(self.bot_token, placeholder="put-your-telegram-bot-token-here")
 
 
 def _telegram_config_from_model(model: AppSettingsState | None) -> TelegramRuntimeConfig:
     runtime = get_settings()
     bot_token = (model.telegram_bot_token if model and model.telegram_bot_token else runtime.telegram_bot_token).strip()
-    chat_id = (model.telegram_chat_id if model and model.telegram_chat_id else runtime.telegram_chat_id).strip()
-    return TelegramRuntimeConfig(
-        bot_token=bot_token,
-        chat_id=chat_id,
-    )
+    return TelegramRuntimeConfig(bot_token=bot_token)
 
 
 def _telegram_config() -> TelegramRuntimeConfig:
@@ -81,37 +81,41 @@ class TelegramService:
         candidates: CandidateService,
         vinted_client: VintedClient,
         taste: TasteService,
+        users: UserService,
         errors: ErrorService | None = None,
     ) -> None:
         self.settings = settings
+        self.users = users
         self.telegram_client = telegram_client
         self.telegram_formatter = telegram_formatter
         self.candidates = candidates
         self.vinted_client = vinted_client
         self.taste = taste
         self.errors = errors
-        self._apply_search_drafts: Callable[[int | None], SearchDraftApplyResult] | None = None
+        self._apply_search_drafts: Callable[[int, int | None], SearchDraftApplyResult] | None = None
         self._polling_bot_token: str | None = None
 
-    def set_search_draft_applier(self, applier: Callable[[int | None], SearchDraftApplyResult]) -> None:
+    def set_search_draft_applier(self, applier: Callable[[int, int | None], SearchDraftApplyResult]) -> None:
         self._apply_search_drafts = applier
 
     def _apply_bot_token(self, config: TelegramRuntimeConfig) -> None:
         self.telegram_client.bot_token = config.bot_token
 
-    def send_test_notification(self) -> dict[str, object]:
+    def send_test_notification(self, user_id: int) -> dict[str, object]:
         config = _telegram_config()
         self._apply_bot_token(config)
-        if not is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here"):
+        if not config.configured:
             raise ValueError("Telegram bot token is missing.")
-        if not is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here"):
-            raise ValueError("Telegram chat ID is missing.")
+        with session_scope() as session:
+            chat_id = self.users.chat_for_user(session, user_id)
+        if chat_id is None:
+            raise ValueError("This profile's Telegram chat is not listed in TELEGRAM_CHAT_IDS.")
 
         response = self.telegram_client.send_message(
-            chat_id=config.chat_id,
+            chat_id=chat_id,
             text="vsniper-Testnachricht: Telegram ist eingerichtet.",
         )
-        return {"ok": True, "message_id": response.get("message_id"), "chat_id": config.chat_id}
+        return {"ok": True, "message_id": response.get("message_id"), "chat_id": chat_id}
 
     @staticmethod
     def _get_latest_delivery(session: Session, candidate_id: str) -> AlertDeliveryState | None:
@@ -150,27 +154,27 @@ class TelegramService:
         )
         return result.rowcount == 1
 
-    def queue_borderline_probe(self) -> bool:
-        """Once a day, send the best near-miss of the last day: a judged listing without
+    def queue_borderline_probe(self, user_id: int) -> bool:
+        """Once a day, send the user the best near-miss of the last day: a judged listing without
         feedback that scored just under its alert threshold. Alerts alone never show the
         system what it scores too low, so these verdicts are the most informative."""
         now = datetime.now(UTC)
         with session_scope() as session:
             config = _telegram_config_from_model(session.get(AppSettingsState, 1))
-            if not (
-                is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here")
-                and is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here")
-            ):
+            if not config.configured or self.users.chat_for_user(session, user_id) is None:
                 return False
             last_sent = as_aware(
                 session.scalar(
-                    select(func.max(AlertDeliveryState.created_at)).where(AlertDeliveryState.kind == "borderline")
+                    select(func.max(AlertDeliveryState.created_at))
+                    .join(Candidate, Candidate.id == AlertDeliveryState.candidate_id)
+                    .where(Candidate.user_id == user_id, AlertDeliveryState.kind == "borderline")
                 )
             )
             if last_sent is not None and now - last_sent < BORDERLINE_INTERVAL:
                 return False
             recent = session.scalars(
                 select(Candidate).where(
+                    Candidate.user_id == user_id,
                     Candidate.created_at >= now - BORDERLINE_INTERVAL,
                     Candidate.feedback.notin_(("like", "dislike")),
                     Candidate.grading_stage == "vlm_judged",
@@ -190,12 +194,15 @@ class TelegramService:
                 return False
             return self.queue_delivery(session, best, kind="borderline")
 
-    def retry_delivery(self, candidate_id: str) -> bool:
+    def retry_delivery(self, user_id: int, candidate_id: str) -> bool:
         """Re-queue the latest failed delivery for a candidate so the worker picks it up next
         cycle. Resets the attempt counter and backoff timer so it is immediately eligible.
         Returns False if there is no delivery to retry or it is not in a failed state."""
         now = datetime.now(UTC)
         with session_scope() as session:
+            candidate = session.get(Candidate, candidate_id)
+            if candidate is None or candidate.user_id != user_id:
+                return False
             delivery = self._get_latest_delivery(session, candidate_id)
             if delivery is None or delivery.status != "failed":
                 return False
@@ -226,13 +233,15 @@ class TelegramService:
         return last_attempted_at + cls._retry_delay(delivery.attempt_count) <= now
 
     @staticmethod
-    def _count_pending_deliveries(session: Session) -> int:
+    def _count_pending_deliveries(session: Session, user_ids: list[int]) -> int:
         # Cheap COUNT for the zero-check / skip messaging — does not load rows into memory.
         return int(
             session.scalar(
                 select(func.count())
                 .select_from(AlertDeliveryState)
+                .join(Candidate, Candidate.id == AlertDeliveryState.candidate_id)
                 .where(
+                    Candidate.user_id.in_(user_ids),
                     AlertDeliveryState.channel == "telegram",
                     AlertDeliveryState.status.in_(("pending", "processing")),
                 )
@@ -240,13 +249,18 @@ class TelegramService:
             or 0
         )
 
-    def _pending_deliveries(self, session: Session, *, limit: int | None = None) -> list[AlertDeliveryState]:
+    def _pending_deliveries(
+        self, session: Session, user_ids: list[int], *, limit: int | None = None
+    ) -> list[AlertDeliveryState]:
         # Bounded so a backlog can't load the whole table into memory; the Python eligibility
         # filter below may drop some (not-yet-due retries), so callers fetch a multiple of what
-        # they intend to claim to leave headroom.
+        # they intend to claim to leave headroom. Alerts of users whose chat is no longer allowed
+        # wait until it is.
         query = (
             select(AlertDeliveryState)
+            .join(Candidate, Candidate.id == AlertDeliveryState.candidate_id)
             .where(
+                Candidate.user_id.in_(user_ids),
                 AlertDeliveryState.channel == "telegram",
                 AlertDeliveryState.status.in_(("pending", "processing")),
             )
@@ -258,10 +272,12 @@ class TelegramService:
         now = datetime.now(UTC)
         return [delivery for delivery in deliveries if self._is_eligible(delivery, now=now)]
 
-    def _claim_pending_deliveries(self, session: Session, *, limit: int) -> list[AlertDeliveryState]:
+    def _claim_pending_deliveries(
+        self, session: Session, user_ids: list[int], *, limit: int
+    ) -> list[AlertDeliveryState]:
         claimed: list[AlertDeliveryState] = []
         # Fetch a multiple of the claim target so the eligibility filter has headroom.
-        for delivery in self._pending_deliveries(session, limit=max(limit, 1) * 4):
+        for delivery in self._pending_deliveries(session, user_ids, limit=max(limit, 1) * 4):
             if len(claimed) >= limit:
                 break
 
@@ -355,11 +371,20 @@ class TelegramService:
             payload_preview = self.telegram_formatter.build_alert_message(
                 candidate_to_contract(candidate), delivery.kind
             )
+            # The alert goes to the chat of the user who owns the listing, and nowhere else.
+            chat_id = self.users.chat_for_user(session, candidate.user_id)
+            if chat_id is None:
+                return self._record_failure(
+                    delivery,
+                    attempted_at=datetime.now(UTC),
+                    error_message="The user's Telegram chat is not listed in TELEGRAM_CHAT_IDS.",
+                    retryable=False,
+                )
 
         attempted_at = datetime.now(UTC)
         try:
             response = self.telegram_client.send_message(
-                chat_id=config.chat_id,
+                chat_id=chat_id,
                 text=payload_preview,
                 reply_markup=self.telegram_formatter.build_feedback_reply_markup(str(delivery_id)),
             )
@@ -412,18 +437,15 @@ class TelegramService:
         # SQLite write lock is released before any (slow) Telegram sends. The committed
         # "processing" status is the cross-process lock that keeps a second worker from
         # re-sending the same alerts.
+        user_ids = self.users.authorized_user_ids()
         with session_scope() as session:
             config = _telegram_config_from_model(session.get(AppSettingsState, 1))
             self._apply_bot_token(config)
-            pending_count = self._count_pending_deliveries(session)
+            pending_count = self._count_pending_deliveries(session, user_ids)
             if pending_count == 0:
                 return DeliveryProcessingResult(summary="No eligible Telegram deliveries were waiting to be processed.")
 
-            telegram_configured = is_value_configured(
-                config.bot_token,
-                placeholder="put-your-telegram-bot-token-here",
-            ) and is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here")
-            if not telegram_configured:
+            if not config.configured:
                 return DeliveryProcessingResult(
                     eligible_deliveries=pending_count,
                     skipped_reason="Telegram credentials are missing.",
@@ -433,7 +455,7 @@ class TelegramService:
                     ),
                 )
 
-            eligible_deliveries = self._claim_pending_deliveries(session, limit=limit)
+            eligible_deliveries = self._claim_pending_deliveries(session, user_ids, limit=limit)
             claimed_ids = [delivery.id for delivery in eligible_deliveries]
 
         eligible_count = len(claimed_ids)
@@ -553,14 +575,6 @@ class TelegramService:
             return None
         return message.chat.id
 
-    @staticmethod
-    def _is_authorized_chat(chat_id: int | str | None, config: TelegramRuntimeConfig) -> bool:
-        if chat_id is None:
-            return False
-        if not is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here"):
-            return False
-        return str(chat_id) == str(config.chat_id)
-
     def _send_telegram_message(
         self,
         *,
@@ -604,13 +618,10 @@ class TelegramService:
                 logger.warning("Failed to edit Telegram taste message; sending a new one instead", exc_info=True)
         self._send_telegram_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
 
-    def _handle_taste_command(self, message: TelegramMessage, config: TelegramRuntimeConfig) -> TelegramUpdateResult:
-        chat_id = self._message_chat_id(message)
-        if not self._is_authorized_chat(chat_id, config):
-            return TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized for taste controls.")
-        snapshot = self.taste.get_snapshot()
+    def _handle_taste_command(self, *, user_id: int, chat_id: int | str) -> TelegramUpdateResult:
+        snapshot = self.taste.get_snapshot(user_id)
         self._send_telegram_message(
-            chat_id=cast(int | str, chat_id),
+            chat_id=chat_id,
             text=self.telegram_formatter.build_taste_status_message(snapshot),
             reply_markup=self.telegram_formatter.build_taste_status_reply_markup(),
         )
@@ -620,11 +631,11 @@ class TelegramService:
             profile_version=snapshot.taste_profile.version if snapshot.taste_profile else None,
         )
 
-    def _run_taste_recompute_background(self, *, job_id: str, chat_id: int | str) -> None:
+    def _run_taste_recompute_background(self, *, user_id: int, job_id: str, chat_id: int | str) -> None:
         config = _telegram_config()
         self._apply_bot_token(config)
         try:
-            result = self.taste.run_claimed_recompute(job_id)
+            result = self.taste.run_claimed_recompute(user_id, job_id)
         except Exception as exc:
             logger.exception("Telegram-triggered taste recompute failed")
             self._send_telegram_message(
@@ -647,17 +658,10 @@ class TelegramService:
         self,
         callback_query: TelegramCallbackQuery,
         *,
-        config: TelegramRuntimeConfig,
+        user_id: int,
+        chat_id: int | str,
         schedule_background: Callable[[Callable[[], None]], None] | None = None,
     ) -> TelegramUpdateResult:
-        chat_id = self._message_chat_id(callback_query.message)
-        if not self._is_authorized_chat(chat_id, config):
-            result = TelegramUpdateResult(
-                action="unauthorized",
-                detail="Telegram chat is not authorized for taste controls.",
-            )
-            self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
-            return result
         parsed = self.telegram_formatter.parse_taste_callback_data(callback_query.data or "")
         if parsed is None:
             result = TelegramUpdateResult(action="invalid_callback", detail="Telegram taste callback was not recognized.")
@@ -665,7 +669,7 @@ class TelegramService:
             return result
 
         if parsed.action == "recompute":
-            claim = self.taste.claim_recompute(source="telegram")
+            claim = self.taste.claim_recompute(user_id, source="telegram")
             if not claim.claimed or claim.job_id is None:
                 text = self.telegram_formatter.build_taste_recompute_already_running_message(
                     started_at=claim.running_started_at,
@@ -675,15 +679,15 @@ class TelegramService:
                     detail=text,
                     recompute_job_id=claim.running_job_id,
                 )
-                self._edit_or_send_callback_message(callback_query, chat_id=cast(int | str, chat_id), text=text)
+                self._edit_or_send_callback_message(callback_query, chat_id=chat_id, text=text)
                 self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
                 return result
 
             text = self.telegram_formatter.build_taste_recompute_started_message(started_at=claim.started_at)
-            self._edit_or_send_callback_message(callback_query, chat_id=cast(int | str, chat_id), text=text)
+            self._edit_or_send_callback_message(callback_query, chat_id=chat_id, text=text)
 
             def task() -> None:
-                self._run_taste_recompute_background(job_id=cast(str, claim.job_id), chat_id=cast(int | str, chat_id))
+                self._run_taste_recompute_background(user_id=user_id, job_id=cast(str, claim.job_id), chat_id=chat_id)
 
             if schedule_background is None:
                 task()
@@ -706,7 +710,7 @@ class TelegramService:
             )
             self._edit_or_send_callback_message(
                 callback_query,
-                chat_id=cast(int | str, chat_id),
+                chat_id=chat_id,
                 text=text,
                 reply_markup={"inline_keyboard": []},
             )
@@ -717,7 +721,7 @@ class TelegramService:
             result = TelegramUpdateResult(action="invalid_callback", detail="Search draft application is not configured.")
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
-        apply_result = self._apply_search_drafts(parsed.profile_version)
+        apply_result = self._apply_search_drafts(user_id, parsed.profile_version)
         text = self.telegram_formatter.build_search_draft_apply_message(apply_result)
         result = TelegramUpdateResult(
             action="taste_drafts_applied",
@@ -727,7 +731,7 @@ class TelegramService:
         )
         self._edit_or_send_callback_message(
             callback_query,
-            chat_id=cast(int | str, chat_id),
+            chat_id=chat_id,
             text=text,
             reply_markup={"inline_keyboard": []},
         )
@@ -735,13 +739,8 @@ class TelegramService:
         return result
 
     def _handle_reply_comment(
-        self, message: TelegramMessage, comment: str, config: TelegramRuntimeConfig
+        self, message: TelegramMessage, comment: str, *, user_id: int, chat_id: int | str
     ) -> TelegramUpdateResult:
-        if not self._is_authorized_chat(self._message_chat_id(message), config):
-            return TelegramUpdateResult(
-                action="unauthorized",
-                detail="Telegram chat is not authorized to comment on alerts.",
-            )
         message_id = message.reply_to_message.message_id if message.reply_to_message else None
         if message_id is None:
             return TelegramUpdateResult(
@@ -754,7 +753,7 @@ class TelegramService:
                 select(AlertDeliveryState)
                 .where(
                     AlertDeliveryState.telegram_message_id == message_id,
-                    AlertDeliveryState.telegram_chat_id == str(config.chat_id),
+                    AlertDeliveryState.telegram_chat_id == str(chat_id),
                 )
                 .limit(1)
             )
@@ -764,7 +763,7 @@ class TelegramService:
                     detail="Reply comment did not match any known alert delivery.",
                 )
             candidate_model = session.get(Candidate, delivery.candidate_id)
-            if candidate_model is None:
+            if candidate_model is None or candidate_model.user_id != user_id:
                 return TelegramUpdateResult(
                     action="ignored",
                     detail="Candidate for this delivery no longer exists.",
@@ -775,6 +774,7 @@ class TelegramService:
         if existing_feedback in {"like", "dislike"}:
             # apply_feedback is three-phase: any VLM observation runs without a held write lock.
             _, snapshot = self.candidates.apply_feedback(
+                user_id,
                 candidate_id,
                 verdict=cast(Literal["like", "dislike"], existing_feedback),
                 comment=comment,
@@ -788,6 +788,7 @@ class TelegramService:
 
         # No verdict yet: store a neutral note-only taste sample with durable assets.
         _, snapshot = self.candidates.apply_note(
+            user_id,
             candidate_id,
             comment=comment,
         )
@@ -805,7 +806,7 @@ class TelegramService:
         configured.
         """
         config = _telegram_config()
-        if not is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here"):
+        if not config.configured:
             return None
         self._apply_bot_token(config)
         if self._polling_bot_token != config.bot_token:
@@ -830,29 +831,32 @@ class TelegramService:
         config = _telegram_config()
         self._apply_bot_token(config)
         if payload.message and payload.message.text:
-            msg_text = payload.message.text.strip()
+            message = payload.message
+            msg_text = message.text.strip() if message.text else ""
             if not msg_text:
                 return TelegramUpdateResult(action="ignored", detail="Empty Telegram message.")
+            # Every reply goes back to the chat that wrote, and acts on that chat's profile only.
+            chat_id = self._message_chat_id(message)
+            user_id = self.users.user_for_chat(chat_id)
+            if chat_id is None or user_id is None:
+                return TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized.")
             command = msg_text.split(maxsplit=1)[0].split("@", maxsplit=1)[0].lower()
             if command == "/taste":
-                return self._handle_taste_command(payload.message, config)
-            if payload.message.reply_to_message is not None:
-                message = payload.message
-                if not self._is_authorized_chat(self._message_chat_id(message), config):
-                    return TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized.")
+                return self._handle_taste_command(user_id=user_id, chat_id=chat_id)
+            if message.reply_to_message is not None:
                 if schedule_background is None:
-                    return self._handle_reply_comment(message, msg_text, config)
+                    return self._handle_reply_comment(message, msg_text, user_id=user_id, chat_id=chat_id)
 
                 # Saving a comment can run an AI call; keep it off the polling thread and confirm afterwards.
                 def save_comment() -> None:
                     try:
-                        result = self._handle_reply_comment(message, msg_text, config)
+                        result = self._handle_reply_comment(message, msg_text, user_id=user_id, chat_id=chat_id)
                     except Exception:
                         logger.exception("Telegram reply comment could not be saved")
-                        self._send_telegram_message(chat_id=config.chat_id, text="❌ Die Notiz konnte ich nicht speichern.")
+                        self._send_telegram_message(chat_id=chat_id, text="❌ Die Notiz konnte ich nicht speichern.")
                         return
                     if result.action == "feedback_recorded":
-                        self._send_telegram_message(chat_id=config.chat_id, text=result.detail)
+                        self._send_telegram_message(chat_id=chat_id, text=result.detail)
 
                 schedule_background(save_comment)
                 return TelegramUpdateResult(action="feedback_queued", detail="Saving reply comment.")
@@ -872,20 +876,20 @@ class TelegramService:
             self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
             return result
 
+        callback_chat_id = self._message_chat_id(callback_query.message)
+        callback_user_id = self.users.user_for_chat(callback_chat_id)
+        if callback_chat_id is None or callback_user_id is None:
+            result = TelegramUpdateResult(action="unauthorized", detail="Telegram chat is not authorized.")
+            self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
+            return result
+
         if callback_query.data.startswith("taste:"):
             return self._handle_taste_callback(
                 callback_query,
-                config=config,
+                user_id=callback_user_id,
+                chat_id=callback_chat_id,
                 schedule_background=schedule_background,
             )
-
-        if not self._is_authorized_chat(self._message_chat_id(callback_query.message), config):
-            result = TelegramUpdateResult(
-                action="unauthorized",
-                detail="Telegram chat is not authorized to record alert feedback.",
-            )
-            self._acknowledge_callback(callback_query.id, self._callback_ack_text(result))
-            return result
 
         parsed_callback = self.telegram_formatter.parse_feedback_callback_data(callback_query.data)
         if parsed_callback is None:
@@ -916,7 +920,7 @@ class TelegramService:
         def run() -> TelegramUpdateResult:
             # Recording feedback downloads images and runs a VLM observation; keep that work
             # off the polling thread so the next updates are not held up.
-            result = self._record_feedback_for_delivery(delivery_id=delivery_id, verdict=verdict)
+            result = self._record_feedback_for_delivery(user_id=callback_user_id, delivery_id=delivery_id, verdict=verdict)
             self._update_feedback_message(callback_query, result)
             return result
 
@@ -928,10 +932,10 @@ class TelegramService:
                 result = run()
             except Exception:
                 logger.exception("Telegram vote for delivery %s could not be saved", delivery_id)
-                self._send_telegram_message(chat_id=config.chat_id, text="❌ Die Bewertung konnte ich nicht speichern.")
+                self._send_telegram_message(chat_id=callback_chat_id, text="❌ Die Bewertung konnte ich nicht speichern.")
                 return
             if result.action not in {"feedback_recorded", "feedback_unchanged"}:
-                self._send_telegram_message(chat_id=config.chat_id, text=self._callback_ack_text(result))
+                self._send_telegram_message(chat_id=callback_chat_id, text=self._callback_ack_text(result))
 
         schedule_background(background)
         return TelegramUpdateResult(
@@ -942,7 +946,7 @@ class TelegramService:
         )
 
     def _record_feedback_for_delivery(
-        self, *, delivery_id: int, verdict: Literal["like", "dislike"]
+        self, *, user_id: int, delivery_id: int, verdict: Literal["like", "dislike"]
     ) -> TelegramUpdateResult:
         # Phase 1 — resolve the delivery to its candidate in a short read transaction.
         with session_scope() as session:
@@ -959,7 +963,9 @@ class TelegramService:
         # Phase 2 — record feedback. apply_feedback is itself three-phase: the image download and
         # VLM observation run with no DB transaction held.
         try:
+            # Raises KeyError when the alert belongs to another user, e.g. a forwarded message.
             candidate_record, snapshot = self.candidates.apply_feedback(
+                user_id,
                 candidate_id,
                 verdict=verdict,
                 skip_if_unchanged=True,

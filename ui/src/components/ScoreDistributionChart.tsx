@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
+import { useUserId } from '../lib/useUserId';
 import type { ScoreDistributionBin, ScoreDistributionWindow } from '../types';
 import { ErrorText } from './ErrorText';
 import { Empty, Loading, Section } from './ui';
@@ -41,12 +42,13 @@ function thresholdX(bins: ScoreDistributionBin[], threshold: number, bandWidth: 
 }
 
 export function ScoreDistributionChart({ threshold }: { threshold: number }) {
+  const userId = useUserId();
   const [selectedWindow, setSelectedWindow] = useState<ScoreDistributionWindow>('7d');
   const [hovered, setHovered] = useState<number | null>(null);
 
   const query = useQuery({
-    queryKey: queryKeys.scoreDistribution(selectedWindow),
-    queryFn: () => api.getScoreDistribution(selectedWindow),
+    queryKey: queryKeys.scoreDistribution(userId, selectedWindow),
+    queryFn: () => api.getScoreDistribution(userId, selectedWindow),
     placeholderData: (previous) => previous,
   });
 

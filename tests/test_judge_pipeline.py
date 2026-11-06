@@ -72,6 +72,7 @@ def _seed_judged_candidate(factory, candidate_id: str, score_trace: ScoreTrace, 
     session.add(
         Candidate(
             id=candidate_id,
+            user_id=1,
             search_id="search-001",
             clothing_item="hosen",
             title="Previously seen",
@@ -120,7 +121,7 @@ def _judgment(score: int, explanation: str = "") -> CandidateJudgment:
 
 
 def _search(search_id: str = "search-001") -> SearchRecord:
-    return SearchRecord(id=search_id, name="Test", clothing_item="hosen", query="vintage", region="de")
+    return SearchRecord(id=search_id, user_id=1, name="Test", clothing_item="hosen", query="vintage", region="de")
 
 
 def _jpeg(color: str = "red") -> bytes:
@@ -327,7 +328,7 @@ def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(m
     from vsniper.db.models import Search
 
     session = memo_db()
-    session.add(Search(id="search-001", name="Test", clothing_item="hosen", query="q", region="de", run_status="running"))
+    session.add(Search(id="search-001", user_id=1, name="Test", clothing_item="hosen", query="q", region="de", run_status="running"))
     session.commit()
     session.close()
 

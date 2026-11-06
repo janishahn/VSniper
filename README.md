@@ -8,12 +8,14 @@ Each 👍/👎 is stored with a one-line lesson about what drove it. The taste p
 
 Clothing buckets (Schuhe, Hosen, Ringe, …) are managed on the Buckets page. Each bucket covers chosen categories from Vinted's women's catalog and the sizes to search for, and gets its own search and taste profile. A bucket with history is archived instead of deleted.
 
+Several people can share one installation. Every Telegram chat listed in `TELEGRAM_CHAT_IDS` gets its own profile with separate buckets, searches, taste and alerts; the bot ignores any other chat. The first chat in the list receives error notices. A new chat starts with a copy of the first profile's buckets. Profiles are managed on the Profiles page, and the web UI has no login, so keep it private.
+
 Vinted is read as an anonymous visitor, so no Vinted account or cookie is needed. Scans use the catalog search; each listing that has not been judged before is then loaded from its item page for the description and all photos.
 
 ## Run it
 
 ```bash
-cp .env.example .env   # add the Telegram bot token and chat ID and the OpenAI key
+cp .env.example .env   # add the Telegram bot token, the allowed chat IDs and the OpenAI key
 docker compose pull
 docker compose up -d
 ```

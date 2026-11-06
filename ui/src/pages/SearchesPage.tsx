@@ -16,13 +16,15 @@ import {
 import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { queryKeys } from '../lib/queryKeys';
+import { useCurrentUser } from '../lib/useUserId';
 import type { SearchRecord, SearchUpdatePayload } from '../types';
 
 type BuilderState = { searchId: string; form: SearchFormState };
 
 export function SearchesPage() {
+  const { userId, user } = useCurrentUser();
   const queryClient = useQueryClient();
-  const searchesQuery = useQuery({ queryKey: queryKeys.searches, queryFn: api.getSearches, refetchInterval: 30_000 });
+  const searchesQuery = useQuery({ queryKey: queryKeys.searches(userId), queryFn: () => api.getSearches(userId), refetchInterval: 30_000 });
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
   const { query: bucketsQuery, buckets } = useBuckets();
   const bucketFor = (key: string) => buckets.find((bucket) => bucket.key === key);
@@ -40,17 +42,17 @@ export function SearchesPage() {
   };
 
   const invalidateSearchRunData = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.searches });
-    queryClient.invalidateQueries({ queryKey: queryKeys.candidates });
-    queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+    queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.candidates(userId) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.stats(userId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.costs });
   };
 
   const updateMutation = useMutation({
-    mutationFn: ({ searchId, payload }: { searchId: string; payload: SearchUpdatePayload }) => api.updateSearch(searchId, payload),
+    mutationFn: ({ searchId, payload }: { searchId: string; payload: SearchUpdatePayload }) => api.updateSearch(userId, searchId, payload),
     onSuccess: () => {
       closeBuilder();
-      queryClient.invalidateQueries({ queryKey: queryKeys.searches });
+      queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) });
     },
     onError: (error) => {
       if (builder) setBuilderError(error.message);
@@ -58,17 +60,17 @@ export function SearchesPage() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: api.toggleSearch,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.searches }),
+    mutationFn: (searchId: string) => api.toggleSearch(userId, searchId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.searches(userId) }),
   });
 
   const liveMutation = useMutation({
-    mutationFn: api.runSearch,
+    mutationFn: (searchId: string) => api.runSearch(userId, searchId),
     onSuccess: invalidateSearchRunData,
   });
 
   const runAllMutation = useMutation({
-    mutationFn: api.runAllSearches,
+    mutationFn: () => api.runAllSearches(userId),
     onSuccess: invalidateSearchRunData,
   });
 
@@ -104,7 +106,7 @@ export function SearchesPage() {
   if (searchesQuery.isError || !searchesQuery.data) {
     return <div className="page">{header}<ErrorText error={searchesQuery.error ?? 'Could not load searches.'} /></div>;
   }
-  const globalAlertThreshold = settingsQuery.data?.alert_threshold ?? 95;
+  const globalAlertThreshold = user?.alert_threshold ?? 95;
 
   return (
     <div className="page">

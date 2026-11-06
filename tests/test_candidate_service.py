@@ -38,6 +38,7 @@ def _setup(monkeypatch, tmp_path):
 def _candidate(candidate_id: str, *, created_at: datetime) -> Candidate:
     return Candidate(
         id=candidate_id,
+        user_id=1,
         search_id="s1",
         clothing_item="hosen",
         title=f"Candidate {candidate_id}",
@@ -75,7 +76,7 @@ def test_candidate_page_defaults_to_recent_unreviewed_candidates_sorted_by_score
     now = datetime.now(UTC)
 
     with factory() as session:
-        session.add(Search(id="s1", name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
         lower_score = _candidate("recent-low", created_at=now - timedelta(hours=1))
         lower_score.final_score = 0.6
         higher_score = _candidate("recent-high", created_at=now - timedelta(hours=2))
@@ -85,7 +86,7 @@ def test_candidate_page_defaults_to_recent_unreviewed_candidates_sorted_by_score
         session.add_all([lower_score, higher_score, older])
         session.commit()
 
-    page = service.page(feedback="unknown")
+    page = service.page(1, feedback="unknown")
 
     assert page.total == 2
     assert [candidate.id for candidate in page.items] == ["recent-high", "recent-low"]
@@ -116,6 +117,7 @@ def test_note_only_feedback_keeps_unknown_verdict_and_upserts_sample(monkeypatch
             session.add(
                 TasteSampleState(
                     id="taste-note",
+                    user_id=candidate.user_id,
                     kind="offer_note",
                     clothing_item=candidate.clothing_item,
                     note=comment,
@@ -130,13 +132,13 @@ def test_note_only_feedback_keeps_unknown_verdict_and_upserts_sample(monkeypatch
     service.settings = SimpleNamespace()
 
     with factory() as session:
-        session.add(Search(id="s1", name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
         candidate = _candidate("candidate-1", created_at=datetime.now(UTC))
         candidate.ai_observation = {"garment_type": "trousers"}
         session.add(candidate)
         session.commit()
 
-    updated, snapshot = service.apply_note("candidate-1", comment="great texture")
+    updated, snapshot = service.apply_note(1, "candidate-1", comment="great texture")
 
     assert updated.feedback == "unknown"
     assert updated.feedback_comment == "great texture"
@@ -161,7 +163,7 @@ def test_prune_old_records_drops_aged_rows_and_keeps_pending(monkeypatch, tmp_pa
         )
 
     with factory() as session:
-        session.add(Search(id="s1", name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
         session.add(_candidate("recent", created_at=now))
         session.add(_candidate("old", created_at=old))  # pruned (aged out)
         session.add(_candidate("recent-terminal", created_at=now))
@@ -186,3 +188,22 @@ def test_prune_old_records_drops_aged_rows_and_keeps_pending(monkeypatch, tmp_pa
         assert session.scalar(select(func.count()).select_from(AiUsageEvent)) == 1
         surviving = {d.candidate_id: d.status for d in session.scalars(select(AlertDeliveryState)).all()}
         assert surviving == {"recent-pending": "pending"}
+
+
+def test_feedback_on_another_profiles_candidate_is_rejected(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    from vsniper.domain.contracts import FeedbackPayload
+
+    service, factory = _setup(monkeypatch, tmp_path)
+    with factory() as session:
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(_candidate("candidate-1", created_at=datetime.now(UTC)))
+        session.commit()
+
+    with pytest.raises(KeyError):
+        service.record_feedback(2, "candidate-1", FeedbackPayload(verdict="like"))
+    assert service.page(2).total == 0
+
+    with factory() as session:
+        assert session.get(Candidate, "candidate-1").feedback == "unknown"

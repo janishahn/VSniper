@@ -46,6 +46,22 @@ class BucketSizeGroup(BaseModel):
     sizes: list[BucketSize]
 
 
+class UserRecord(BaseModel):
+    id: int
+    name: str
+    # None until an allowed chat is linked to the profile.
+    telegram_chat_id: str | None
+    # The chat is listed in TELEGRAM_CHAT_IDS: the bot answers it and its searches run.
+    authorized: bool
+    alert_threshold: int
+    blocked_brands: list[str]
+
+
+class UserUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    alert_threshold: int = Field(ge=1, le=100)
+
+
 class BucketRecord(BaseModel):
     key: ClothingItem
     label: str
@@ -78,6 +94,7 @@ class BucketDeleteResult(BaseModel):
 
 class SearchRecord(BaseModel):
     id: str
+    user_id: int
     name: str
     enabled: bool = True
     clothing_item: ClothingItem
@@ -384,14 +401,11 @@ class JudgmentPromptPreview(BaseModel):
 
 class SettingsSnapshot(BaseModel):
     telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
     telegram_configured: bool
     ai_configured: bool
     vision_model: str
     decision_model: str
-    alert_threshold: int = 95
     scan_interval_seconds: int = 1800
-    blocked_brands: list[str] = Field(default_factory=list)
 
 
 ErrorSource = Literal["api", "search", "candidate_judgment", "taste_recompute", "telegram", "worker"]
@@ -621,16 +635,7 @@ class TelegramUpdateResult(BaseModel):
 
 class SettingsUpdate(BaseModel):
     telegram_bot_token: str | None = None
-    telegram_chat_id: str | None = None
-    alert_threshold: int | None = None
     scan_interval_seconds: int | None = None
-
-    @field_validator("alert_threshold")
-    @classmethod
-    def _validate_alert_threshold(cls, value: int | None) -> int | None:
-        if value is not None and not (1 <= value <= 100):
-            raise ValueError("Alert threshold must be between 1 and 100.")
-        return value
 
     @field_validator("scan_interval_seconds")
     @classmethod

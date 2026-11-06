@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import AppSettingsState, Bucket, Search, TasteState
+from vsniper.db.models import AppSettingsState, Bucket, Search, TasteState, User
 from vsniper.domain.contracts import GeneratedSearchDraft, SearchFilter, TasteProfile
 from vsniper.services.search_service import SearchService
 
@@ -40,16 +40,18 @@ def _setup(monkeypatch, tmp_path):
 
     with fake_session_scope() as session:
         session.add(AppSettingsState(id=1))
-        session.add(Bucket(key="schuhe", label="Schuhe", catalog_ids=[16, 2632]))
-        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9]))
-        session.add(Bucket(key="kopf", label="Kopf", catalog_ids=[88]))
-        session.add(Bucket(key="obenrum_warm", label="Obenrum Warm", catalog_ids=[12]))
-        session.add(Bucket(key="obenrum_mittel", label="Obenrum Mittel", catalog_ids=[13]))
-        session.add(Search(id="search-schuhe", name="Schuhe", clothing_item="schuhe", query="q", region="de", run_status="idle"))
-        session.add(Search(id="search-hosen", name="Hosen", clothing_item="hosen", query="q", region="de", run_status="idle"))
-        session.add(Search(id="search-kopf", name="Kopf", clothing_item="kopf", query="q", region="de", run_status="idle"))
-        session.add(Search(id="search-obenrum-warm", name="Obenrum Warm", clothing_item="obenrum_warm", query="q", region="de", run_status="idle"))
-        session.add(Search(id="search-obenrum-mittel", name="Obenrum Mittel", clothing_item="obenrum_mittel", query="q", region="de", run_status="idle"))
+        session.add(User(id=1, name="Profile 1"))
+        session.flush()
+        session.add(Bucket(user_id=1, key="schuhe", label="Schuhe", catalog_ids=[16, 2632]))
+        session.add(Bucket(user_id=1, key="hosen", label="Hosen", catalog_ids=[9]))
+        session.add(Bucket(user_id=1, key="kopf", label="Kopf", catalog_ids=[88]))
+        session.add(Bucket(user_id=1, key="obenrum_warm", label="Obenrum Warm", catalog_ids=[12]))
+        session.add(Bucket(user_id=1, key="obenrum_mittel", label="Obenrum Mittel", catalog_ids=[13]))
+        session.add(Search(user_id=1, id="search-schuhe", name="Schuhe", clothing_item="schuhe", query="q", region="de", run_status="idle"))
+        session.add(Search(user_id=1, id="search-hosen", name="Hosen", clothing_item="hosen", query="q", region="de", run_status="idle"))
+        session.add(Search(user_id=1, id="search-kopf", name="Kopf", clothing_item="kopf", query="q", region="de", run_status="idle"))
+        session.add(Search(user_id=1, id="search-obenrum-warm", name="Obenrum Warm", clothing_item="obenrum_warm", query="q", region="de", run_status="idle"))
+        session.add(Search(user_id=1, id="search-obenrum-mittel", name="Obenrum Mittel", clothing_item="obenrum_mittel", query="q", region="de", run_status="idle"))
 
     service = SearchService.__new__(SearchService)
     return service, factory
@@ -79,12 +81,12 @@ def test_apply_generated_drafts_preserves_the_user_price_ceiling(monkeypatch, tm
     with factory() as session:
         search = session.get(Search, "search-schuhe")
         search.filters = [existing_price.model_dump(mode="json")]
-        session.add(TasteState(id=1, taste_profile=profile.model_dump(mode="json")))
+        session.add(TasteState(user_id=1, taste_profile=profile.model_dump(mode="json")))
         session.commit()
 
-    service.preferences = SimpleNamespace(get_taste_state=lambda session: session.get(TasteState, 1))
+    service.preferences = SimpleNamespace(get_taste_state=lambda session, user_id: session.get(TasteState, user_id))
 
-    result = service.apply_generated_search_drafts(profile_version=4)
+    result = service.apply_generated_search_drafts(1, profile_version=4)
 
     assert result.applied == ["schuhe"]
     with factory() as session:

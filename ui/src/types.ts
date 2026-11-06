@@ -59,6 +59,7 @@ export type BucketDeleteResult = {
 
 export type SearchRecord = {
   id: string;
+  user_id: number;
   name: string;
   enabled: boolean;
   clothing_item: ClothingItem;
@@ -347,14 +348,25 @@ export type JudgmentPromptPreview = {
 
 export type SettingsSnapshot = {
   telegram_bot_token: string;
-  telegram_chat_id: string;
   telegram_configured: boolean;
   ai_configured: boolean;
   vision_model: string;
   decision_model: string;
-  alert_threshold: number;
   scan_interval_seconds: number;
+};
+
+export type UserRecord = {
+  id: number;
+  name: string;
+  telegram_chat_id: string | null;
+  authorized: boolean;
+  alert_threshold: number;
   blocked_brands: string[];
+};
+
+export type UserUpdate = {
+  name: string;
+  alert_threshold: number;
 };
 
 export type ErrorSource =

@@ -58,9 +58,10 @@ def test_candidate_feedback_sample_uses_durable_images(monkeypatch, tmp_path) ->
     now = datetime.now(UTC)
 
     with factory() as session:
-        session.add(Search(id="s1", name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
         candidate = Candidate(
             id="candidate-1",
+            user_id=1,
             search_id="s1",
             clothing_item="hosen",
             title="Wide cargos",
@@ -113,7 +114,7 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
     with factory() as session:
         session.add(
             TasteState(
-                id=1,
+                user_id=1,
                 manual_note="",
                 taste_profile={},
                 recompute_status="running",
@@ -123,7 +124,7 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
         )
         session.commit()
 
-    snapshot = service.cancel_recompute()
+    snapshot = service.cancel_recompute(1)
     assert snapshot.recompute_state.status == "cancelled"
     assert snapshot.recompute_state.job_id is None
 
@@ -135,7 +136,7 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
         assert state.recompute_error == "Cancelled by user."
 
     # A cancelled claim must not force the caller to wait out the 2h staleness window.
-    claim = service.claim_recompute(source="api")
+    claim = service.claim_recompute(1, source="api")
     assert claim.claimed is True
 
 
@@ -144,7 +145,7 @@ def _seed_recompute_prereqs(factory, *, job_id: str, taste_profile: dict, now: d
         session.add(AppSettingsState(id=1))
         session.add(
             TasteState(
-                id=1,
+                user_id=1,
                 manual_note="",
                 taste_profile=taste_profile,
                 recompute_status="running",
@@ -165,8 +166,8 @@ def test_superseded_recompute_job_does_not_clobber_newer_result(monkeypatch, tmp
 
     # Simulate the orphaned call's claim being superseded (e.g. by a cancel) while it was
     # still in flight, then the orphaned call finally returning.
-    service.cancel_recompute()
-    service._run_recompute_unlocked("job-A")
+    service.cancel_recompute(1)
+    service._run_recompute_unlocked(1, "job-A")
 
     with factory() as session:
         state = session.get(TasteState, 1)
@@ -176,7 +177,7 @@ def test_superseded_recompute_job_does_not_clobber_newer_result(monkeypatch, tmp
 
 def _sample(sample_id: str, *, kind: str, updated_at: datetime) -> TasteSampleState:
     return TasteSampleState(
-        id=sample_id, kind=kind, clothing_item="hosen", title=sample_id, created_at=updated_at, updated_at=updated_at
+        id=sample_id, user_id=1, kind=kind, clothing_item="hosen", title=sample_id, created_at=updated_at, updated_at=updated_at
     )
 
 
@@ -185,18 +186,18 @@ def test_auto_recompute_runs_at_most_daily_and_only_after_enough_feedback(monkey
     factory = service._test_factory
     now = datetime.now(UTC)
     ran: list[str] = []
-    service.run_claimed_recompute = lambda job_id: ran.append(job_id)
+    service.run_claimed_recompute = lambda user_id, job_id: ran.append(job_id)
     with factory() as session:
         session.add(
             TasteState(
-                id=1, manual_note="", taste_profile={"summary": "x"}, recompute_status="succeeded",
+                user_id=1, manual_note="", taste_profile={"summary": "x"}, recompute_status="succeeded",
                 last_recomputed_at=now - timedelta(hours=25), recompute_finished_at=now - timedelta(hours=25),
             )
         )
         session.add_all([_sample(f"s{i}", kind="offer_dislike", updated_at=now) for i in range(2)])
         session.commit()
 
-    service.run_auto_recompute_if_due()
+    service.run_auto_recompute_if_due(1)
     assert ran == []  # two changes wait for more feedback
 
     with factory() as session:
@@ -204,14 +205,14 @@ def test_auto_recompute_runs_at_most_daily_and_only_after_enough_feedback(monkey
         state = session.get(TasteState, 1)
         state.recompute_status, state.recompute_finished_at = "failed", now - timedelta(hours=1)
         session.commit()
-    service.run_auto_recompute_if_due()
+    service.run_auto_recompute_if_due(1)
     assert ran == []  # a recent failed attempt also waits a full day
 
     with factory() as session:
         state = session.get(TasteState, 1)
         state.recompute_finished_at = now - timedelta(hours=25)
         session.commit()
-    service.run_auto_recompute_if_due()
+    service.run_auto_recompute_if_due(1)
     assert len(ran) == 1
 
     with factory() as session:
@@ -222,7 +223,7 @@ def test_auto_recompute_runs_at_most_daily_and_only_after_enough_feedback(monkey
         session.query(TasteSampleState).delete()
         session.add(_sample("lone", kind="offer_like", updated_at=now))
         session.commit()
-    service.run_auto_recompute_if_due()
+    service.run_auto_recompute_if_due(1)
     assert len(ran) == 2  # a single change is folded in once it has waited a week
 
 
@@ -231,13 +232,13 @@ def test_anchors_are_only_feedback_newer_than_the_profile(monkeypatch, tmp_path)
     factory = service._test_factory
     now = datetime.now(UTC)
     with factory() as session:
-        session.add(TasteState(id=1, manual_note="", taste_profile={}, last_recomputed_at=now - timedelta(hours=1)))
+        session.add(TasteState(user_id=1, manual_note="", taste_profile={}, last_recomputed_at=now - timedelta(hours=1)))
         session.add(_sample("old-like", kind="offer_like", updated_at=now - timedelta(hours=2)))
         session.add(_sample("new-like", kind="offer_like", updated_at=now))
         session.add(_sample("new-dislike", kind="offer_dislike", updated_at=now))
         session.commit()
 
-    liked, disliked = service.latest_labeled_anchors(clothing_item="hosen")
+    liked, disliked = service.latest_labeled_anchors(user_id=1, clothing_item="hosen")
 
     assert [example.title for example in liked] == ["new-like"]
     assert [example.title for example in disliked] == ["new-dislike"]

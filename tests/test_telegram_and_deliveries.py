@@ -28,7 +28,7 @@ def test_poll_updates_clears_webhook_once_and_handles_each_update(monkeypatch) -
     monkeypatch.setattr(service, 'handle_update', lambda update, **_: handled.append(update.update_id))
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523'),
+        lambda: TelegramRuntimeConfig('bot-token'),
     )
 
     first = service.poll_updates(offset=0, timeout_seconds=1)
@@ -40,13 +40,19 @@ def test_poll_updates_clears_webhook_once_and_handles_each_update(monkeypatch) -
 
 
 def _build_telegram_service_without_init() -> TelegramService:
-    """Construct a TelegramService bypassing __init__ so tests can inject fakes."""
-    return TelegramService.__new__(TelegramService)
+    """Construct a TelegramService bypassing __init__ so tests can inject fakes. Chat 523 is
+    allowed and belongs to profile 1."""
+    service = TelegramService.__new__(TelegramService)
+    service.users = SimpleNamespace(
+        user_for_chat=lambda chat_id: 1 if str(chat_id) == '523' else None,
+        chat_for_user=lambda session, user_id: '523' if user_id == 1 else None,
+        authorized_user_ids=lambda: [1],
+    )
+    return service
 
 
 def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> None:
     service = _build_telegram_service_without_init()
-    service.settings = SimpleNamespace(telegram_chat_id='chat-123')
     service.telegram_formatter = SimpleNamespace(
         build_alert_message=lambda candidate, kind='alert': 'alert body',
         build_feedback_reply_markup=lambda delivery_id: {'inline_keyboard': [[{'callback_data': f'feedback:{delivery_id}:like'}]]},
@@ -59,6 +65,7 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
 
     candidate = SimpleNamespace(
         id='cand-1',
+        user_id=1,
         feedback='unknown',
         alert_deliveries=[],
     )
@@ -79,10 +86,7 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
     class FakeSession:
         def get(self, model, key):
             if model is AppSettingsState:
-                return SimpleNamespace(
-                    telegram_bot_token='bot-token',
-                    telegram_chat_id='chat-123',
-                )
+                return SimpleNamespace(telegram_bot_token='bot-token')
             if model is AlertDeliveryState and key == delivery.id:
                 return delivery
             if key == 'cand-1':
@@ -95,9 +99,9 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
 
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
     monkeypatch.setattr('vsniper.services.telegram_service.candidate_to_contract', lambda candidate: SimpleNamespace(id='cand-1'))
-    monkeypatch.setattr(TelegramService, '_count_pending_deliveries', lambda self, session: 1)
+    monkeypatch.setattr(TelegramService, '_count_pending_deliveries', lambda self, session, user_ids: 1)
 
-    def fake_claim(self, session, *, limit: int):
+    def fake_claim(self, session, user_ids, *, limit: int):
         delivery.status = 'processing'
         delivery.attempt_count += 1
         delivery.last_attempted_at = datetime.now(UTC)
@@ -159,7 +163,7 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
     def fake_session_scope():
         yield FakeSession()
 
-    def fake_apply_feedback(candidate_id, *, verdict: str, comment: str = '', skip_if_unchanged: bool = False):
+    def fake_apply_feedback(user_id, candidate_id, *, verdict: str, comment: str = '', skip_if_unchanged: bool = False):
         # The press is answered before the slow recording starts.
         assert acknowledgements == [{'callback_query_id': 'callback-telegram-1', 'text': 'Wird gespeichert …'}]
         candidate.feedback = verdict
@@ -170,7 +174,7 @@ def test_handle_telegram_webhook_records_feedback_from_delivery_callback(monkeyp
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523'),
+        lambda: TelegramRuntimeConfig('bot-token'),
     )
 
     result = service.handle_update(
@@ -234,7 +238,7 @@ def test_handle_telegram_webhook_rejects_feedback_from_unauthorized_chat(monkeyp
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523'),
+        lambda: TelegramRuntimeConfig('bot-token'),
     )
 
     result = service.handle_update(
@@ -278,7 +282,7 @@ def test_taste_recompute_callback_detects_already_running(monkeypatch) -> None:
     )
     service.telegram_formatter = TelegramFormatter()
     service.taste = SimpleNamespace(
-        claim_recompute=lambda source: SimpleNamespace(
+        claim_recompute=lambda user_id, source: SimpleNamespace(
             claimed=False,
             job_id=None,
             started_at=None,
@@ -289,7 +293,7 @@ def test_taste_recompute_callback_detects_already_running(monkeypatch) -> None:
 
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523'),
+        lambda: TelegramRuntimeConfig('bot-token'),
     )
 
     result = service.handle_update(
@@ -317,7 +321,8 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
     from sqlalchemy.orm import sessionmaker
 
     from vsniper.core.database import Base
-    from vsniper.db.models import Candidate
+    from vsniper.db.models import Candidate, User
+    from vsniper.services.user_service import UserService
 
     engine = create_engine(f"sqlite:///{tmp_path / 'borderline.db'}", future=True)
     Base.metadata.create_all(engine)
@@ -337,7 +342,7 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
 
     def candidate(candidate_id: str, score: int, *, feedback: str = 'unknown', age: timedelta = timedelta(hours=1)):
         return Candidate(
-            id=candidate_id, search_id='s1', clothing_item='hosen', title=candidate_id, brand='B', price_eur=20.0,
+            id=candidate_id, user_id=1, search_id='s1', clothing_item='hosen', title=candidate_id, brand='B', price_eur=20.0,
             size='M', url=f'https://example.test/{candidate_id}', image_urls=[], matched_filters=[],
             matched_preferences=[], features=[], normalized_listing={}, extraction_status='completed',
             score_trace={'final_score': score / 100, 'score_10': score, 'threshold': 0.95, 'decision': 'review',
@@ -347,7 +352,8 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
         )
 
     with factory() as session:
-        session.add(AppSettingsState(id=1, telegram_bot_token='bot-token', telegram_chat_id='523'))
+        session.add(AppSettingsState(id=1, telegram_bot_token='bot-token'))
+        session.add(User(id=1, name='Profile 1', telegram_chat_id='523'))
         session.add_all([
             candidate('near-85', 85),
             candidate('near-88', 88),
@@ -358,10 +364,11 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
         session.commit()
 
     service = _build_telegram_service_without_init()
+    service.users = UserService(SimpleNamespace(allowed_chat_ids=['523']))
     service.telegram_formatter = TelegramFormatter()
 
-    assert service.queue_borderline_probe() is True
-    assert service.queue_borderline_probe() is False  # one per day
+    assert service.queue_borderline_probe(1) is True
+    assert service.queue_borderline_probe(1) is False  # one per day
 
     with factory() as session:
         deliveries = session.scalars(select(AlertDeliveryState)).all()
@@ -377,10 +384,10 @@ def test_reply_comment_is_saved_off_the_polling_thread_and_confirmed(monkeypatch
     service.telegram_client = SimpleNamespace(send_message=lambda **kwargs: sent.append(kwargs))
     monkeypatch.setattr(
         'vsniper.services.telegram_service._telegram_config',
-        lambda: TelegramRuntimeConfig('bot-token', '523'),
+        lambda: TelegramRuntimeConfig('bot-token'),
     )
     delivery = SimpleNamespace(candidate_id='cand-3')
-    candidate = SimpleNamespace(id='cand-3', feedback='like')
+    candidate = SimpleNamespace(id='cand-3', user_id=1, feedback='like')
 
     class FakeSession:
         def scalar(self, query):
@@ -393,8 +400,8 @@ def test_reply_comment_is_saved_off_the_polling_thread_and_confirmed(monkeypatch
     def fake_session_scope():
         yield FakeSession()
 
-    def fake_apply_feedback(candidate_id, **kwargs):
-        saved.append((candidate_id, kwargs))
+    def fake_apply_feedback(user_id, candidate_id, **kwargs):
+        saved.append((user_id, candidate_id, kwargs))
         return candidate, SimpleNamespace(id='snapshot')
 
     monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
@@ -411,5 +418,78 @@ def test_reply_comment_is_saved_off_the_polling_thread_and_confirmed(monkeypatch
     assert result.action == 'feedback_queued'
     assert not saved and not sent
     scheduled[0]()
-    assert saved == [('cand-3', {'verdict': 'like', 'comment': 'Toller Schnitt'})]
+    assert saved == [(1, 'cand-3', {'verdict': 'like', 'comment': 'Toller Schnitt'})]
     assert sent == [{'chat_id': '523', 'text': '📝 Notiz gespeichert.', 'reply_markup': None}]
+
+
+def test_each_alert_goes_to_its_owners_chat_and_waits_while_that_chat_is_not_allowed(monkeypatch, tmp_path) -> None:
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from vsniper.core.database import Base
+    from vsniper.db.models import Candidate, User
+    from vsniper.services.user_service import UserService
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'routing.db'}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+    @contextmanager
+    def fake_session_scope():
+        session = factory()
+        try:
+            yield session
+            session.commit()
+        finally:
+            session.close()
+
+    monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
+    monkeypatch.setattr('vsniper.services.user_service.session_scope', fake_session_scope)
+    now = datetime.now(UTC)
+
+    def candidate(candidate_id: str, user_id: int) -> Candidate:
+        return Candidate(
+            id=candidate_id, user_id=user_id, search_id=f's{user_id}', clothing_item='hosen', title=candidate_id,
+            brand='B', price_eur=20.0, size='M', url=f'https://example.test/{candidate_id}', image_urls=[],
+            matched_filters=[], matched_preferences=[], features=[], normalized_listing={},
+            extraction_status='completed',
+            score_trace={'final_score': 0.97, 'score_10': 97, 'threshold': 0.95, 'decision': 'alert',
+                         'components': [], 'summary': '', 'raw_response': {}},
+            decision='alert', final_score=0.97, ai_observation={}, grading_stage='vlm_judged',
+            feedback='unknown', feedback_comment='', created_at=now,
+        )
+
+    with factory() as session:
+        session.add(AppSettingsState(id=1, telegram_bot_token='bot-token'))
+        session.add_all([
+            User(id=1, name='Host', telegram_chat_id='523'),
+            User(id=2, name='Sister', telegram_chat_id='777'),
+            User(id=3, name='Removed', telegram_chat_id='999'),
+        ])
+        session.add_all([candidate('mine', 1), candidate('hers', 2), candidate('removed', 3)])
+        for candidate_id in ('mine', 'hers', 'removed'):
+            session.add(AlertDeliveryState(
+                candidate_id=candidate_id, channel='telegram', status='pending', attempt_count=0,
+                payload_preview='', created_at=now, updated_at=now,
+            ))
+        session.commit()
+
+    sent: list[tuple[str, str]] = []
+    service = TelegramService.__new__(TelegramService)
+    service.users = UserService(SimpleNamespace(allowed_chat_ids=['523', '777']))
+    service.telegram_formatter = SimpleNamespace(
+        build_alert_message=lambda candidate, kind='alert': candidate.title,
+        build_feedback_reply_markup=lambda delivery_id: None,
+    )
+    service.telegram_client = SimpleNamespace(
+        bot_token='',
+        send_message=lambda *, chat_id, text, reply_markup=None: sent.append((chat_id, text)) or {'message_id': 1},
+    )
+
+    result = service.process_pending_deliveries()
+
+    assert sorted(sent) == [('523', 'mine'), ('777', 'hers')]
+    assert result.sent_deliveries == 2
+    with factory() as session:
+        removed = session.query(AlertDeliveryState).filter_by(candidate_id='removed').one()
+        assert removed.status == 'pending'

@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
+import { useCurrentUser, useUserId } from '../lib/useUserId';
 import { ErrorText } from '../components/ErrorText';
 import { ScoreDistributionChart } from '../components/ScoreDistributionChart';
 import { Badge, Empty, Loading, PageHeader, Section, Stat, StatusDot, type Tone } from '../components/ui';
@@ -150,6 +151,7 @@ function BackupSection() {
 }
 
 function WorkerSection({ ops }: { ops: OperationsSnapshot }) {
+  const userId = useUserId();
   const queryClient = useQueryClient();
   const { clothingItemLabel } = useBuckets();
   const isPaused = ops.maintenance_mode !== 'idle';
@@ -163,7 +165,7 @@ function WorkerSection({ ops }: { ops: OperationsSnapshot }) {
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.operations }),
   });
   const cancelMutation = useMutation({
-    mutationFn: (searchId: string) => api.cancelSearch(searchId),
+    mutationFn: (searchId: string) => api.cancelSearch(userId, searchId),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.operations });
       queryClient.invalidateQueries({ queryKey: ['search-runs'] });
@@ -210,7 +212,7 @@ function WorkerSection({ ops }: { ops: OperationsSnapshot }) {
           label="Failed alerts"
           value={ops.delivery_summary.failed}
           tone={ops.delivery_summary.failed > 0 ? 'bad' : undefined}
-          to={ops.delivery_summary.failed > 0 ? '/candidates?delivery_status=failed&feedback=all' : undefined}
+          to={ops.delivery_summary.failed > 0 ? 'candidates?delivery_status=failed&feedback=all' : undefined}
         />
       </div>
 
@@ -291,7 +293,8 @@ function WorkerSection({ ops }: { ops: OperationsSnapshot }) {
 }
 
 function RunsSection() {
-  const searchesQuery = useQuery({ queryKey: queryKeys.searches, queryFn: api.getSearches });
+  const userId = useUserId();
+  const searchesQuery = useQuery({ queryKey: queryKeys.searches(userId), queryFn: () => api.getSearches(userId) });
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const runsQuery = useQuery({
@@ -367,9 +370,10 @@ function RunsSection() {
 }
 
 export function DashboardPage() {
-  const statsQuery = useQuery({ queryKey: queryKeys.stats, queryFn: api.getDashboardStats, refetchInterval: 30_000 });
+  const { userId, user } = useCurrentUser();
+  const statsQuery = useQuery({ queryKey: queryKeys.stats(userId), queryFn: () => api.getDashboardStats(userId), refetchInterval: 30_000 });
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
-  const tasteQuery = useQuery({ queryKey: queryKeys.taste, queryFn: api.getTaste });
+  const tasteQuery = useQuery({ queryKey: queryKeys.taste(userId), queryFn: () => api.getTaste(userId) });
   const opsQuery = useQuery({ queryKey: queryKeys.operations, queryFn: api.getOperationsStatus, refetchInterval: 10_000 });
 
   if (statsQuery.isLoading || settingsQuery.isLoading) {
@@ -421,7 +425,7 @@ export function DashboardPage() {
               : 'The taste note changed'} since the last recompute.
           </span>
           <span className="spacer" />
-          <Link to="/my-taste" className="btn btn-sm">Open My Taste</Link>
+          <Link to="my-taste" className="btn btn-sm">Open My Taste</Link>
         </div>
       ) : null}
 
@@ -450,21 +454,21 @@ export function DashboardPage() {
       </div>
 
       <div className="stats">
-        <Stat label="Candidates today" value={stats.candidates_today} to="/candidates?window=1d&feedback=all" />
-        <Stat label="Avg alert score" value={stats.avg_alert_score ? stats.avg_alert_score.toFixed(1) : '–'} to="/candidates?decision=alert&feedback=all" />
-        <Stat label="Likes" value={stats.likes} to="/candidates?feedback=like" />
-        <Stat label="Dislikes" value={stats.dislikes} to="/candidates?feedback=dislike" />
-        <Stat label="Active searches" value={stats.active_searches} to="/searches" />
+        <Stat label="Candidates today" value={stats.candidates_today} to="candidates?window=1d&feedback=all" />
+        <Stat label="Avg alert score" value={stats.avg_alert_score ? stats.avg_alert_score.toFixed(1) : '–'} to="candidates?decision=alert&feedback=all" />
+        <Stat label="Likes" value={stats.likes} to="candidates?feedback=like" />
+        <Stat label="Dislikes" value={stats.dislikes} to="candidates?feedback=dislike" />
+        <Stat label="Active searches" value={stats.active_searches} to="searches" />
         <Stat label="Pending alerts" value={stats.pending_deliveries} />
         <Stat
           label="Failed alerts"
           value={stats.failed_deliveries}
           tone={stats.failed_deliveries > 0 ? 'bad' : undefined}
-          to="/candidates?delivery_status=failed&feedback=all"
+          to="candidates?delivery_status=failed&feedback=all"
         />
       </div>
 
-      <ScoreDistributionChart threshold={settings.alert_threshold} />
+      {user ? <ScoreDistributionChart threshold={user.alert_threshold} /> : null}
 
       {opsQuery.isLoading ? (
         <Loading label="Loading worker status…" />

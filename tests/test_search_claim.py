@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, event, update
 from sqlalchemy.orm import sessionmaker
 
 from vsniper.core.database import Base
-from vsniper.db.models import AppSettingsState, Bucket, Candidate, Search, SearchRun
+from vsniper.db.models import AppSettingsState, Bucket, Candidate, Search, SearchRun, User
 from vsniper.domain.contracts import ScoreTrace, SearchRecord, SearchUpdate, TasteProfile
 from vsniper.services.search_service import (
     SearchClothingItemImmutable,
@@ -51,8 +51,10 @@ def _setup(monkeypatch, tmp_path):
     monkeypatch.setattr("vsniper.services.operations_service.session_scope", fake_session_scope)
 
     with fake_session_scope() as session:
-        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9]))
-        session.add(Search(id="s1", name="S", clothing_item="hosen", query="q", region="de", run_status="idle"))
+        session.add(User(id=1, name="Profile 1"))
+        session.flush()
+        session.add(Bucket(user_id=1, key="hosen", label="Hosen", catalog_ids=[9]))
+        session.add(Search(id="s1", user_id=1, name="S", clothing_item="hosen", query="q", region="de", run_status="idle"))
 
     service = SearchService.__new__(SearchService)
     return service, factory
@@ -154,7 +156,7 @@ def test_api_live_run_rejects_active_claim(monkeypatch, tmp_path) -> None:
     _set(factory, run_status="running", last_claimed_at=datetime.now(UTC))
 
     with pytest.raises(SearchRunAlreadyClaimed):
-        service.run_live("s1")
+        service.run_live(1, "s1")
 
 
 def test_update_rejects_changing_clothing_item(monkeypatch, tmp_path) -> None:
@@ -162,6 +164,7 @@ def test_update_rejects_changing_clothing_item(monkeypatch, tmp_path) -> None:
 
     with pytest.raises(SearchClothingItemImmutable):
         service.update(
+            1,
             "s1",
             SearchUpdate(
                 name="Warm tops",
@@ -176,7 +179,7 @@ def test_update_rejects_changing_clothing_item(monkeypatch, tmp_path) -> None:
 
 def _persist_minimal(service, factory, *, mode):
     search_record = SearchRecord(
-        id="s1", name="S", enabled=True, clothing_item="hosen", query="q", region="de",
+        id="s1", user_id=1, name="S", enabled=True, clothing_item="hosen", query="q", region="de",
         filters=[], last_run_at=None, last_found_count=0,
     )
     raw = {
@@ -268,7 +271,7 @@ def test_scan_searches_the_bucket_sizes(monkeypatch, tmp_path) -> None:
     searched: list[SearchRecord] = []
     _wire_run(service, factory, run_search=lambda search: searched.append(search) or [])
     with _session_scope_of(factory) as session:
-        session.get(Bucket, "hosen").sizes = [{"id": 4, "title": "M"}, {"id": 5, "title": "L"}]
+        session.get(Bucket, (1, "hosen")).sizes = [{"id": 4, "title": "M"}, {"id": 5, "title": "L"}]
     service._judge_candidates = lambda *args, **kwargs: ({}, {}, 0, 0)
 
     service._run("s1", mode="preview")

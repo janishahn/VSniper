@@ -21,7 +21,7 @@ def _visitor_cookie(expiry: datetime) -> str:
 
 
 def _search(*filters: SearchFilter, query: str = "cargo") -> SearchRecord:
-    return SearchRecord(id="search-hosen", name="Hosen", clothing_item="hosen", query=query, region="de", filters=list(filters))
+    return SearchRecord(id="search-hosen", user_id=1, name="Hosen", clothing_item="hosen", query=query, region="de", filters=list(filters))
 
 
 class _Vinted:

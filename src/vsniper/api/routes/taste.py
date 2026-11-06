@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
+from vsniper.api.routes.users import UserId
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import (
     ClothingItem,
@@ -34,21 +35,22 @@ MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_ZIP_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
-@router.get("/taste", response_model=TasteSnapshot)
-def get_taste() -> TasteSnapshot:
-    return get_state().taste.get_snapshot()
+@router.get("/users/{user_id}/taste", response_model=TasteSnapshot)
+def get_taste(user_id: UserId) -> TasteSnapshot:
+    return get_state().taste.get_snapshot(user_id)
 
 
-@router.get("/taste/judgment-prompt", response_model=JudgmentPromptPreview)
-def get_judgment_prompt(clothing_item: ClothingItem) -> JudgmentPromptPreview:
+@router.get("/users/{user_id}/taste/judgment-prompt", response_model=JudgmentPromptPreview)
+def get_judgment_prompt(user_id: UserId, clothing_item: ClothingItem) -> JudgmentPromptPreview:
     try:
-        return get_state().taste.get_judgment_prompt_preview(clothing_item)
+        return get_state().taste.get_judgment_prompt_preview(user_id, clothing_item)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/taste/wardrobe", response_model=TasteSample, status_code=status.HTTP_201_CREATED)
+@router.post("/users/{user_id}/taste/wardrobe", response_model=TasteSample, status_code=status.HTTP_201_CREATED)
 async def upload_wardrobe_image(
+    user_id: UserId,
     file: UploadFile = File(...),
     clothing_item: ClothingItem = Form(...),
     note: str = Form(default=""),
@@ -60,6 +62,7 @@ async def upload_wardrobe_image(
         if len(content) > MAX_IMAGE_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Uploaded image exceeds the 10 MB limit.")
         return get_state().taste.add_wardrobe_image(
+            user_id,
             file_name=file.filename,
             content=content,
             note=note,
@@ -73,8 +76,8 @@ async def upload_wardrobe_image(
         await file.close()
 
 
-@router.post("/taste/wardrobe/import-zip", response_model=WardrobeZipImportResult, status_code=status.HTTP_201_CREATED)
-async def import_wardrobe_zip(file: UploadFile = File(...)) -> WardrobeZipImportResult:
+@router.post("/users/{user_id}/taste/wardrobe/import-zip", response_model=WardrobeZipImportResult, status_code=status.HTTP_201_CREATED)
+async def import_wardrobe_zip(user_id: UserId, file: UploadFile = File(...)) -> WardrobeZipImportResult:
     try:
         content = await file.read(MAX_ZIP_UPLOAD_BYTES + 1)
         if len(content) > MAX_ZIP_UPLOAD_BYTES:
@@ -100,6 +103,7 @@ async def import_wardrobe_zip(file: UploadFile = File(...)) -> WardrobeZipImport
                 try:
                     image_bytes = zf.read(entry.file)
                     sample = taste.add_wardrobe_image(
+                        user_id,
                         file_name=entry.file,
                         content=image_bytes,
                         note=entry.note,
@@ -117,10 +121,10 @@ async def import_wardrobe_zip(file: UploadFile = File(...)) -> WardrobeZipImport
         await file.close()
 
 
-@router.post("/taste/offers/from-url", response_model=TasteSample, status_code=status.HTTP_201_CREATED)
-def add_offer(payload: TasteOfferCreate) -> TasteSample:
+@router.post("/users/{user_id}/taste/offers/from-url", response_model=TasteSample, status_code=status.HTTP_201_CREATED)
+def add_offer(user_id: UserId, payload: TasteOfferCreate) -> TasteSample:
     try:
-        return get_state().taste.add_offer(payload)
+        return get_state().taste.add_offer(user_id, payload)
     except VintedListingUrlError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except VintedClientError as exc:
@@ -130,10 +134,10 @@ def add_offer(payload: TasteOfferCreate) -> TasteSample:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/taste/samples/{sample_id}/image")
-def get_sample_image(sample_id: str) -> FileResponse:
+@router.get("/users/{user_id}/taste/samples/{sample_id}/image")
+def get_sample_image(user_id: UserId, sample_id: str) -> FileResponse:
     try:
-        path = get_state().taste.sample_image_path(sample_id)
+        path = get_state().taste.sample_image_path(user_id, sample_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Taste sample not found.") from exc
     except FileNotFoundError as exc:
@@ -143,35 +147,35 @@ def get_sample_image(sample_id: str) -> FileResponse:
     return FileResponse(path)
 
 
-@router.patch("/taste/samples/{sample_id}", response_model=TasteSample)
-def update_sample(sample_id: str, payload: TasteSampleUpdate) -> TasteSample:
+@router.patch("/users/{user_id}/taste/samples/{sample_id}", response_model=TasteSample)
+def update_sample(user_id: UserId, sample_id: str, payload: TasteSampleUpdate) -> TasteSample:
     try:
-        return get_state().taste.update_sample(sample_id, payload)
+        return get_state().taste.update_sample(user_id, sample_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Taste sample not found.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.delete("/taste/samples/{sample_id}", response_model=TasteSample)
-def delete_sample(sample_id: str) -> TasteSample:
+@router.delete("/users/{user_id}/taste/samples/{sample_id}", response_model=TasteSample)
+def delete_sample(user_id: UserId, sample_id: str) -> TasteSample:
     try:
-        return get_state().taste.delete_sample(sample_id)
+        return get_state().taste.delete_sample(user_id, sample_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Taste sample not found.") from exc
 
 
-@router.put("/taste/manual-note", response_model=TasteSnapshot)
-def update_manual_note(payload: TasteManualNoteUpdate) -> TasteSnapshot:
-    return get_state().taste.update_manual_note(payload)
+@router.put("/users/{user_id}/taste/manual-note", response_model=TasteSnapshot)
+def update_manual_note(user_id: UserId, payload: TasteManualNoteUpdate) -> TasteSnapshot:
+    return get_state().taste.update_manual_note(user_id, payload)
 
 
-@router.post("/taste/recompute", response_model=TasteRecomputeResult)
-def recompute_taste() -> TasteRecomputeResult:
+@router.post("/users/{user_id}/taste/recompute", response_model=TasteRecomputeResult)
+def recompute_taste(user_id: UserId) -> TasteRecomputeResult:
     started = perf_counter()
     logger.info("taste recompute request started")
     try:
-        result = get_state().taste.recompute()
+        result = get_state().taste.recompute(user_id)
     except TasteRecomputeAlreadyRunning as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -193,7 +197,7 @@ def recompute_taste() -> TasteRecomputeResult:
     return result
 
 
-@router.post("/taste/recompute/cancel", response_model=TasteSnapshot)
-def cancel_taste_recompute() -> TasteSnapshot:
+@router.post("/users/{user_id}/taste/recompute/cancel", response_model=TasteSnapshot)
+def cancel_taste_recompute(user_id: UserId) -> TasteSnapshot:
     logger.info("taste recompute cancel requested")
-    return get_state().taste.cancel_recompute()
+    return get_state().taste.cancel_recompute(user_id)

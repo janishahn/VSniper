@@ -2,20 +2,23 @@
 // inline string literals stops a typo in one `invalidateQueries` call from
 // silently failing to refresh a cache.
 export const queryKeys = {
-  stats: ['stats'] as const,
+  users: ['users'] as const,
+  // Keys of what a profile owns start with ['users', userId], so one profile's data never
+  // answers for another's.
+  stats: (userId: number) => ['users', userId, 'stats'] as const,
   costs: ['ai-cost-stats'] as const,
-  scoreDistribution: (window: string) => ['score-distribution', window] as const,
+  scoreDistribution: (userId: number, window: string) => ['users', userId, 'score-distribution', window] as const,
   storage: ['storage'] as const,
   errors: (params: { source: string; offset: number; limit: number }) =>
     ['errors', params.source, params.offset, params.limit] as const,
-  searches: ['searches'] as const,
-  buckets: ['buckets'] as const,
+  searches: (userId: number) => ['users', userId, 'searches'] as const,
+  buckets: (userId: number) => ['users', userId, 'buckets'] as const,
   vintedCatalog: ['vinted-catalog'] as const,
   vintedSizes: (catalogIds: number[]) => ['vinted-sizes', ...catalogIds] as const,
-  taste: ['taste'] as const,
-  judgmentPrompt: (clothingItem: string) => ['judgment-prompt', clothingItem] as const,
-  candidates: ['candidates'] as const,
-  candidatesPage: (params: {
+  taste: (userId: number) => ['users', userId, 'taste'] as const,
+  judgmentPrompt: (userId: number, clothingItem: string) => ['users', userId, 'judgment-prompt', clothingItem] as const,
+  candidates: (userId: number) => ['users', userId, 'candidates'] as const,
+  candidatesPage: (userId: number, params: {
     clothing_item: string;
     stage: string;
     decision: string;
@@ -27,6 +30,8 @@ export const queryKeys = {
     limit: number;
   }) =>
     [
+      'users',
+      userId,
       'candidates',
       params.clothing_item,
       params.stage,
@@ -39,9 +44,7 @@ export const queryKeys = {
       params.limit,
     ] as const,
   settings: ['settings'] as const,
-  blockedBrands: ['blocked-brands'] as const,
   vintedBrandSearch: (query: string) => ['vinted-brand-search', query] as const,
-  telegramPreview: ['telegram-preview'] as const,
   data: ['data'] as const,
   operations: ['operations'] as const,
   searchRuns: (params: { search_id?: string; status?: string }) =>

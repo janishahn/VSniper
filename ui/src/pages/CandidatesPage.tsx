@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
+import { useUserId } from '../lib/useUserId';
 import { ErrorText } from '../components/ErrorText';
 import { Badge, Empty, Loading, PageHeader, Score, type Tone } from '../components/ui';
 import type { CandidatePage as CandidatePageData, CandidateRecord, ClothingItem } from '../types';
@@ -368,6 +369,7 @@ function CompactRow({
 const PAGE_SIZE = 50;
 
 export function CandidatesPage() {
+  const userId = useUserId();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const { buckets } = useBuckets();
@@ -398,7 +400,7 @@ export function CandidatesPage() {
   };
 
   const candidatesQuery = useQuery({
-    queryKey: queryKeys.candidatesPage({
+    queryKey: queryKeys.candidatesPage(userId, {
       clothing_item: clothingItemFilter,
       stage: stageFilter,
       decision: decisionFilter,
@@ -409,7 +411,7 @@ export function CandidatesPage() {
       offset,
       limit: PAGE_SIZE,
     }),
-    queryFn: () => api.getCandidates({
+    queryFn: () => api.getCandidates(userId, {
       clothing_item: clothingItemFilter,
       stage: stageFilter,
       decision: decisionFilter,
@@ -426,11 +428,11 @@ export function CandidatesPage() {
 
   const feedbackMutation = useMutation({
     mutationFn: ({ candidateId, verdict, comment }: FeedbackVars) =>
-      api.sendFeedbackWithComment(candidateId, verdict, comment),
+      api.sendFeedbackWithComment(userId, candidateId, verdict, comment),
     onMutate: async ({ candidateId, verdict, comment }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.candidates });
-      const snapshots = queryClient.getQueriesData<CandidatePageData>({ queryKey: queryKeys.candidates });
-      queryClient.setQueriesData<CandidatePageData>({ queryKey: queryKeys.candidates }, (old) =>
+      await queryClient.cancelQueries({ queryKey: queryKeys.candidates(userId) });
+      const snapshots = queryClient.getQueriesData<CandidatePageData>({ queryKey: queryKeys.candidates(userId) });
+      queryClient.setQueriesData<CandidatePageData>({ queryKey: queryKeys.candidates(userId) }, (old) =>
         old
           ? { ...old, items: old.items.map((c) => (c.id === candidateId ? { ...c, feedback: verdict, feedback_comment: comment } : c)) }
           : old,
@@ -441,15 +443,15 @@ export function CandidatesPage() {
       context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.candidates });
-      queryClient.invalidateQueries({ queryKey: queryKeys.taste });
-      queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidates(userId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.taste(userId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stats(userId) });
     },
   });
 
   const retryMutation = useMutation({
-    mutationFn: (candidateId: string) => api.retryDelivery(candidateId),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.candidates }),
+    mutationFn: (candidateId: string) => api.retryDelivery(userId, candidateId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.candidates(userId) }),
   });
 
   const setPage = (next: number) => setParam('page', String(Math.max(0, next)), '0');

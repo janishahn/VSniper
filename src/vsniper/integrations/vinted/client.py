@@ -192,7 +192,7 @@ class VintedClient:
         normalized: list[dict[str, Any]] = []
         for item in self._extract_items(payload):
             try:
-                normalized.append(self._normalise_item(item, search))
+                normalized.append(self._normalise_item(item))
             except ValueError:
                 continue
         return normalized
@@ -235,16 +235,7 @@ class VintedClient:
             "url": f"{self.base_url}{self._listing_path_from_url(url)}",
             "photos": [{"url": image_url} for image_url in page.image_urls],
         }
-        search = SearchRecord(
-            id=f"offer-{item_id}",
-            name="Offer by URL",
-            enabled=True,
-            clothing_item=clothing_item,
-            query="",
-            region=region,
-            filters=[],
-        )
-        return self._normalise_item(item, search)
+        return self._normalise_item(item)
 
     def search_brands(self, query: str) -> list[dict[str, str]]:
         """Look up Vinted's own brand catalog for autocomplete, e.g. for a blocked-brands picker."""
@@ -666,7 +657,7 @@ class VintedClient:
                 return [item for item in value if isinstance(item, dict)]
         return []
 
-    def _normalise_item(self, item: dict[str, Any], search: SearchRecord) -> dict[str, Any]:
+    def _normalise_item(self, item: dict[str, Any]) -> dict[str, Any]:
         external_item_id = self._first_non_empty(item.get("id"), item.get("item_id"), item.get("external_item_id"))
         if not external_item_id:
             raise ValueError("Listing payload is missing an id")

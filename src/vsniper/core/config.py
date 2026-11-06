@@ -18,7 +18,9 @@ def _discover_runtime_root() -> Path:
 class Settings(BaseSettings):
     sqlite_path: Path = Field(default=Path("storage/sqlite/vsniper.db"), alias="SQLITE_PATH")
     telegram_bot_token: str = Field(default="put-your-telegram-bot-token-here", alias="TELEGRAM_BOT_TOKEN")
-    telegram_chat_id: str = Field(default="put-your-telegram-chat-id-here", alias="TELEGRAM_CHAT_ID")
+    # Comma-separated Telegram chat IDs allowed to use the bot; each gets its own profile.
+    # The first one also receives error notifications.
+    telegram_chat_ids: str = Field(default="", alias="TELEGRAM_CHAT_IDS")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     openai_api_key: str = Field(default="put-your-openai-api-key-here", alias="OPENAI_API_KEY")
     # Describes reference photos, writes the taste profile and explains alerts.
@@ -35,6 +37,11 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def allowed_chat_ids(self) -> list[str]:
+        # Chat IDs are integers; this also drops the placeholder from .env.example.
+        return [chat_id for chat_id in (part.strip() for part in self.telegram_chat_ids.split(",")) if chat_id.lstrip("-").isdigit()]
 
     @property
     def cors_origins(self) -> list[str]:

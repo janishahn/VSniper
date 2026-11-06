@@ -62,7 +62,7 @@ def _record_worker_error(operation: str, summary: str, exc: BaseException) -> No
         _logger.exception("could not persist worker error event")
 
 
-def _run_one(search_id: str, search_name: str, interval: int) -> None:
+def _run_one(user_id: int, search_id: str, search_name: str, interval: int) -> None:
     state = get_state()
     if not state.searches.claim_for_run(
         search_id, timedelta(seconds=interval), stale_after=_WORKER_CLAIM_STALE_AFTER
@@ -71,7 +71,7 @@ def _run_one(search_id: str, search_name: str, interval: int) -> None:
         return
 
     try:
-        result = run_once(search_id)
+        result = run_once(user_id, search_id)
         with _search_failure_lock:
             _search_failure_counts.pop(search_id, None)
         _logger.info("%s", result.summary)
@@ -94,7 +94,7 @@ def cycle(interval: int) -> None:
             _run_maintenance()
             return
         state = get_state()
-        enabled = [s for s in state.searches.all() if s.enabled]
+        enabled = state.searches.scannable(state.users.authorized_user_ids())
         if not enabled:
             _logger.info("worker idle: no enabled searches")
         else:
@@ -102,7 +102,7 @@ def cycle(interval: int) -> None:
             pool = ThreadPoolExecutor(max_workers=max_workers)
             timed_out = False
             try:
-                futures = {pool.submit(_run_one, s.id, s.name, interval): (s.id, s.name) for s in enabled}
+                futures = {pool.submit(_run_one, s.user_id, s.id, s.name, interval): (s.id, s.name) for s in enabled}
                 try:
                     for fut in as_completed(futures, timeout=_CYCLE_TIMEOUT_SECONDS):
                         try:
@@ -171,9 +171,11 @@ def _run_maintenance() -> None:
     with worker_activity("auto_taste_recompute") as active:
         if active:
             try:
-                result = get_state().taste.run_auto_recompute_if_due()
-                if result is not None:
-                    _logger.info("automatic taste recompute finished cost_usd=%.4f", result.cost_usd)
+                state = get_state()
+                for user_id in state.users.authorized_user_ids():
+                    result = state.taste.run_auto_recompute_if_due(user_id)
+                    if result is not None:
+                        _logger.info("automatic taste recompute for profile %d finished cost_usd=%.4f", user_id, result.cost_usd)
             except Exception as exc:
                 _logger.warning("automatic taste recompute failed", exc_info=True)
                 _record_worker_error("auto_taste_recompute", "Automatic taste recompute failed", exc)
@@ -184,8 +186,10 @@ def _run_maintenance() -> None:
     with worker_activity("borderline_probe") as active:
         if active:
             try:
-                if get_state().telegram.queue_borderline_probe():
-                    _logger.info("queued the daily borderline listing")
+                state = get_state()
+                for user_id in state.users.authorized_user_ids():
+                    if state.telegram.queue_borderline_probe(user_id):
+                        _logger.info("queued the daily borderline listing for profile %d", user_id)
             except Exception as exc:
                 _logger.warning("borderline probe failed", exc_info=True)
                 _record_worker_error("borderline_probe", "Borderline probe failed", exc)
@@ -223,7 +227,7 @@ def _run_maintenance() -> None:
 
 def _enabled_searches() -> list[SearchRecord]:
     state = get_state()
-    return [s for s in state.searches.all() if s.enabled]
+    return state.searches.scannable(state.users.authorized_user_ids())
 
 
 def _active_scan_count() -> int:
@@ -249,7 +253,7 @@ def _launch_scan(search: SearchRecord, interval: int) -> None:
                     dispose_engine()
                     _logger.info("skipping '%s': maintenance is active", search.name)
                     return
-                _run_one(search.id, search.name, interval)
+                _run_one(search.user_id, search.id, search.name, interval)
         finally:
             with _active_scan_lock:
                 _active_scan_threads.discard(threading.current_thread())

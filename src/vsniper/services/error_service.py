@@ -37,13 +37,10 @@ _MAX_TRACEBACK_CHARS = 20_000
 _MAX_DETAIL_STRING_CHARS = 8000
 
 
-def _configured_telegram(settings: AppSettingsState) -> bool:
-    return is_value_configured(
+def _configured_telegram(settings: AppSettingsState, host_chat_id: str | None) -> bool:
+    return host_chat_id is not None and is_value_configured(
         settings.telegram_bot_token,
         placeholder="put-your-telegram-bot-token-here",
-    ) and is_value_configured(
-        settings.telegram_chat_id,
-        placeholder="put-your-telegram-chat-id-here",
     )
 
 
@@ -53,6 +50,11 @@ class ErrorService:
     def __init__(self, settings: Settings, telegram_client: TelegramClient) -> None:
         self.settings = settings
         self.telegram_client = telegram_client
+
+    def _host_chat_id(self) -> str | None:
+        """Error notices go to the first allowed chat: the person running the installation."""
+        allowed = self.settings.allowed_chat_ids
+        return allowed[0] if allowed else None
 
     @staticmethod
     def _settings_row(session: Session) -> AppSettingsState:
@@ -252,16 +254,16 @@ class ErrorService:
                 items=[self._to_record(row) for row in rows],
                 total=total,
                 telegram_notifications_enabled=settings.error_telegram_notifications_enabled,
-                telegram_configured=_configured_telegram(settings),
+                telegram_configured=_configured_telegram(settings, self._host_chat_id()),
             )
 
     def update_notification_settings(self, *, enabled: bool) -> ErrorNotificationSettings:
         now = datetime.now(UTC)
         with session_scope() as session:
             settings = self._settings_row(session)
-            configured = _configured_telegram(settings)
+            configured = _configured_telegram(settings, self._host_chat_id())
             if enabled and not configured:
-                raise ValueError("Configure a Telegram bot token and chat ID before enabling error notifications.")
+                raise ValueError("Configure a Telegram bot token and TELEGRAM_CHAT_IDS before enabling error notifications.")
             settings.error_telegram_notifications_enabled = enabled
             if not enabled:
                 session.execute(
@@ -387,7 +389,9 @@ class ErrorService:
             if not settings.error_telegram_notifications_enabled:
                 return {"claimed": 0, "sent": 0, "retry": 0, "failed": 0}
             bot_token = settings.telegram_bot_token
-            chat_id = settings.telegram_chat_id
+            chat_id = self._host_chat_id()
+            if chat_id is None:
+                return {"claimed": 0, "sent": 0, "retry": 0, "failed": 0}
             claimed = self._claim_pending(session, limit=limit)
 
         counts = {"claimed": len(claimed), "sent": 0, "retry": 0, "failed": 0}

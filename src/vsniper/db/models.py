@@ -8,11 +8,28 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from vsniper.core.database import Base
 
 
+class User(Base):
+    """One person using the bot. Telegram chats listed in TELEGRAM_CHAT_IDS are allowed to use it."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    # Empty until an allowed chat is linked to this profile on startup.
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    alert_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
+    # Brand titles (as returned by Vinted's own brand catalog) that are hard-excluded from every
+    # scan before judging — matched case-insensitively against the candidate's extracted brand.
+    blocked_brands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
 class Bucket(Base):
-    """A clothing bucket. Its key is fixed: samples, searches and candidates reference it."""
+    """A clothing bucket of one user. Its key is fixed: samples, searches and candidates reference it."""
 
     __tablename__ = "buckets"
 
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     key: Mapped[str] = mapped_column(String(32), primary_key=True)
     label: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -29,9 +46,10 @@ class Bucket(Base):
 
 class Search(Base):
     __tablename__ = "searches"
-    __table_args__ = (UniqueConstraint("clothing_item", name="uq_searches_clothing_item"),)
+    __table_args__ = (UniqueConstraint("user_id", "clothing_item", name="uq_searches_user_clothing_item"),)
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     clothing_item: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     query: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -61,6 +79,7 @@ class Candidate(Base):
     __tablename__ = "candidates"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     external_item_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     clothing_item: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     search_id: Mapped[str] = mapped_column(ForeignKey("searches.id"), nullable=False)
@@ -121,6 +140,7 @@ class TasteSampleState(Base):
     __tablename__ = "taste_samples"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     clothing_item: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     note: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -146,7 +166,7 @@ class TasteSampleState(Base):
 class TasteState(Base):
     __tablename__ = "taste_state"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     manual_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
     manual_note_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     taste_profile: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
@@ -166,6 +186,7 @@ class LearningSnapshotState(Base):
     __tablename__ = "learning_snapshots"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     changed_weights: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
@@ -185,14 +206,9 @@ class AppSettingsState(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_bot_token: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    telegram_chat_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     telegram_configured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_telegram_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    alert_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
     scan_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
-    # Brand titles (as returned by Vinted's own brand catalog) that are hard-excluded from every
-    # scan before judging — matched case-insensitively against the candidate's extracted brand.
-    blocked_brands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
 
 class ErrorEvent(Base):

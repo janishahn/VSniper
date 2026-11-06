@@ -51,18 +51,14 @@ def is_value_configured(value: str, *, placeholder: str) -> bool:
     return bool(value and value.strip() and value != placeholder)
 
 
-def integration_configuration(
-    telegram_bot_token: str | None = None,
-    telegram_chat_id: str | None = None,
-) -> tuple[bool, bool]:
+def integration_configuration(telegram_bot_token: str | None = None) -> tuple[bool, bool]:
     """Returns (telegram_configured, ai_configured)."""
     runtime = get_settings()
     effective_telegram_bot_token = telegram_bot_token if telegram_bot_token is not None else runtime.telegram_bot_token
-    effective_telegram_chat_id = telegram_chat_id if telegram_chat_id is not None else runtime.telegram_chat_id
     telegram_configured = is_value_configured(
         effective_telegram_bot_token,
         placeholder="put-your-telegram-bot-token-here",
-    ) and is_value_configured(effective_telegram_chat_id, placeholder="put-your-telegram-chat-id-here")
+    ) and bool(runtime.allowed_chat_ids)
     ai_configured = is_value_configured(runtime.openai_api_key, placeholder="put-your-openai-api-key-here")
     return telegram_configured, ai_configured
 
@@ -91,6 +87,7 @@ def search_to_record(model: Search, *, default_alert_threshold: int = 95) -> Sea
     return SearchRecord.model_validate(
         {
             "id": model.id,
+            "user_id": model.user_id,
             "name": model.name,
             "enabled": model.enabled,
             "clothing_item": model.clothing_item,
@@ -183,22 +180,15 @@ def learning_snapshot_to_contract(model: LearningSnapshotState) -> LearningSnaps
 def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsSnapshot:
     runtime = get_settings()
     telegram_bot_token = model.telegram_bot_token or runtime.telegram_bot_token
-    telegram_chat_id = model.telegram_chat_id or runtime.telegram_chat_id
-    telegram_configured, ai_configured = integration_configuration(
-        telegram_bot_token=telegram_bot_token,
-        telegram_chat_id=telegram_chat_id,
-    )
+    telegram_configured, ai_configured = integration_configuration(telegram_bot_token=telegram_bot_token)
     return SettingsSnapshot.model_validate(
         {
             "telegram_bot_token": telegram_bot_token,
-            "telegram_chat_id": telegram_chat_id,
             "telegram_configured": telegram_configured,
             "ai_configured": ai_configured,
             "vision_model": runtime.openai_vision_model,
             "decision_model": runtime.openai_decision_model,
-            "alert_threshold": _coerce_alert_threshold(getattr(model, "alert_threshold", 95)),
-            "scan_interval_seconds": getattr(model, "scan_interval_seconds", 1800),
-            "blocked_brands": list(model.blocked_brands or []),
+            "scan_interval_seconds": model.scan_interval_seconds,
         }
     )
 
@@ -206,7 +196,7 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
 def taste_sample_to_contract(model: TasteSampleState) -> TasteSample:
     image_urls = list(model.image_urls or [])
     if model.storage_path and not image_urls:
-        image_urls = [f"/api/taste/samples/{model.id}/image"]
+        image_urls = [f"/api/users/{model.user_id}/taste/samples/{model.id}/image"]
     return TasteSample.model_validate(
         {
             "id": model.id,

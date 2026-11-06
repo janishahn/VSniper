@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, status
 
+from vsniper.api.routes.users import UserId
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import (
     BucketCreate,
@@ -16,33 +17,33 @@ from vsniper.services.bucket_service import BucketInvalid, BucketNotFound
 router = APIRouter(tags=["buckets"])
 
 
-@router.get("/buckets", response_model=list[BucketRecord])
-def list_buckets() -> list[BucketRecord]:
-    return get_state().buckets.all()
+@router.get("/users/{user_id}/buckets", response_model=list[BucketRecord])
+def list_buckets(user_id: UserId) -> list[BucketRecord]:
+    return get_state().buckets.all(user_id)
 
 
-@router.post("/buckets", response_model=BucketRecord, status_code=status.HTTP_201_CREATED)
-def create_bucket(payload: BucketCreate) -> BucketRecord:
+@router.post("/users/{user_id}/buckets", response_model=BucketRecord, status_code=status.HTTP_201_CREATED)
+def create_bucket(user_id: UserId, payload: BucketCreate) -> BucketRecord:
     try:
-        return get_state().buckets.create(payload)
+        return get_state().buckets.create(user_id, payload)
     except BucketInvalid as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
-@router.put("/buckets/{key}", response_model=BucketRecord)
-def update_bucket(key: str, payload: BucketUpdate) -> BucketRecord:
+@router.put("/users/{user_id}/buckets/{key}", response_model=BucketRecord)
+def update_bucket(user_id: UserId, key: str, payload: BucketUpdate) -> BucketRecord:
     try:
-        return get_state().buckets.update(key, payload)
+        return get_state().buckets.update(user_id, key, payload)
     except BucketNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bucket not found") from exc
     except BucketInvalid as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
-@router.delete("/buckets/{key}", response_model=BucketDeleteResult)
-def delete_bucket(key: str) -> BucketDeleteResult:
+@router.delete("/users/{user_id}/buckets/{key}", response_model=BucketDeleteResult)
+def delete_bucket(user_id: UserId, key: str) -> BucketDeleteResult:
     try:
-        return get_state().buckets.delete(key)
+        return get_state().buckets.delete(user_id, key)
     except BucketNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bucket not found") from exc
 

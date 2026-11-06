@@ -27,6 +27,8 @@ import type {
   TasteRecomputeResult,
   TasteSample,
   TasteSnapshot,
+  UserRecord,
+  UserUpdate,
   VintedBrandOption,
   VintedCatalogNode,
   WardrobeZipImportResult,
@@ -36,8 +38,6 @@ import type {
 // SettingsPage's form state, so the two never drift out of sync.
 type SettingsUpdatePayload = {
   telegram_bot_token: string;
-  telegram_chat_id: string;
-  alert_threshold: number;
   scan_interval_seconds: number;
 };
 
@@ -141,6 +141,9 @@ async function requestBlob(path: string, init?: RequestInit): Promise<BlobRespon
   return { blob: await response.blob(), headers: response.headers };
 }
 
+// Everything a profile owns lives under its own path.
+const u = (userId: number) => `/api/users/${userId}`;
+
 function filenameFromContentDisposition(value: string | null): string | null {
   if (!value) return null;
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(value);
@@ -148,10 +151,10 @@ function filenameFromContentDisposition(value: string | null): string | null {
 }
 
 export const api = {
-  getDashboardStats: () => request<DashboardStats>('/api/stats/dashboard'),
+  getDashboardStats: (userId: number) => request<DashboardStats>(`${u(userId)}/stats/dashboard`),
   getAiCostStats: () => request<AiCostStats>('/api/stats/costs'),
-  getScoreDistribution: (window: ScoreDistributionWindow) =>
-    request<ScoreDistribution>(`/api/stats/score-distribution?window=${window}`),
+  getScoreDistribution: (userId: number, window: ScoreDistributionWindow) =>
+    request<ScoreDistribution>(`${u(userId)}/stats/score-distribution?window=${window}`),
   getStorageStats: () => request<StorageStats>('/api/storage/stats'),
   clearCandidateImageCache: () => request<CacheClearResult>('/api/storage/cache/clear', { method: 'POST' }),
   getErrors: (params: { source?: ErrorSource; limit: number; offset: number }) => {
@@ -166,76 +169,77 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
     }),
-  getSearches: () => request<SearchRecord[]>('/api/searches'),
-  getBuckets: () => request<BucketRecord[]>('/api/buckets'),
-  createBucket: (payload: BucketCreate) =>
-    request<BucketRecord>('/api/buckets', { method: 'POST', body: JSON.stringify(payload) }),
-  updateBucket: (key: string, payload: BucketUpdate) =>
-    request<BucketRecord>(`/api/buckets/${key}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  deleteBucket: (key: string) => request<BucketDeleteResult>(`/api/buckets/${key}`, { method: 'DELETE' }),
+  getSearches: (userId: number) => request<SearchRecord[]>(`${u(userId)}/searches`),
+  getBuckets: (userId: number) => request<BucketRecord[]>(`${u(userId)}/buckets`),
+  createBucket: (userId: number, payload: BucketCreate) =>
+    request<BucketRecord>(`${u(userId)}/buckets`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateBucket: (userId: number, key: string, payload: BucketUpdate) =>
+    request<BucketRecord>(`${u(userId)}/buckets/${key}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteBucket: (userId: number, key: string) => request<BucketDeleteResult>(`${u(userId)}/buckets/${key}`, { method: 'DELETE' }),
   getVintedSizes: (catalogIds: number[]) =>
     request<BucketSizeGroup[]>(
       `/api/vinted-sizes?${new URLSearchParams(catalogIds.map((id) => ['catalog_ids', String(id)])).toString()}`,
     ),
   getVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog'),
   refreshVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog/refresh', { method: 'POST' }),
-  updateSearch: (searchId: string, payload: SearchUpdatePayload) =>
-    request<SearchRecord>(`/api/searches/${searchId}`, {
+  updateSearch: (userId: number, searchId: string, payload: SearchUpdatePayload) =>
+    request<SearchRecord>(`${u(userId)}/searches/${searchId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  runSearch: (searchId: string) => request<SearchRunResult>(`/api/searches/${searchId}/run`, { method: 'POST' }),
-  runAllSearches: () => request<SearchRunResult[]>('/api/searches/run-all', { method: 'POST' }),
-  cancelSearch: (searchId: string) => request<void>(`/api/searches/${searchId}/cancel`, { method: 'POST' }),
-  retryDelivery: (candidateId: string) =>
-    request<void>(`/api/candidates/${candidateId}/retry-delivery`, { method: 'POST' }),
-  toggleSearch: (searchId: string) => request<SearchRecord>(`/api/searches/${searchId}/toggle`, { method: 'POST' }),
-  getTaste: () => request<TasteSnapshot>('/api/taste'),
-  getJudgmentPrompt: (clothingItem: ClothingItem) =>
-    request<JudgmentPromptPreview>(`/api/taste/judgment-prompt?clothing_item=${clothingItem}`),
-  recomputeTaste: () => request<TasteRecomputeResult>('/api/taste/recompute', { method: 'POST' }),
-  cancelTasteRecompute: () => request<TasteSnapshot>('/api/taste/recompute/cancel', { method: 'POST' }),
-  uploadWardrobeImage: (file: File, note: string, clothingItem: ClothingItem) => {
+  runSearch: (userId: number, searchId: string) => request<SearchRunResult>(`${u(userId)}/searches/${searchId}/run`, { method: 'POST' }),
+  runAllSearches: (userId: number) => request<SearchRunResult[]>(`${u(userId)}/searches/run-all`, { method: 'POST' }),
+  cancelSearch: (userId: number, searchId: string) => request<void>(`${u(userId)}/searches/${searchId}/cancel`, { method: 'POST' }),
+  retryDelivery: (userId: number, candidateId: string) =>
+    request<void>(`${u(userId)}/candidates/${candidateId}/retry-delivery`, { method: 'POST' }),
+  toggleSearch: (userId: number, searchId: string) => request<SearchRecord>(`${u(userId)}/searches/${searchId}/toggle`, { method: 'POST' }),
+  getTaste: (userId: number) => request<TasteSnapshot>(`${u(userId)}/taste`),
+  getJudgmentPrompt: (userId: number, clothingItem: ClothingItem) =>
+    request<JudgmentPromptPreview>(`${u(userId)}/taste/judgment-prompt?clothing_item=${clothingItem}`),
+  recomputeTaste: (userId: number) => request<TasteRecomputeResult>(`${u(userId)}/taste/recompute`, { method: 'POST' }),
+  cancelTasteRecompute: (userId: number) => request<TasteSnapshot>(`${u(userId)}/taste/recompute/cancel`, { method: 'POST' }),
+  uploadWardrobeImage: (userId: number, file: File, note: string, clothingItem: ClothingItem) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('clothing_item', clothingItem);
     formData.append('note', note);
 
-    return request<TasteSample>('/api/taste/wardrobe', {
+    return request<TasteSample>(`${u(userId)}/taste/wardrobe`, {
       method: 'POST',
       body: formData,
     });
   },
-  importWardrobeZip: (file: File) => {
+  importWardrobeZip: (userId: number, file: File) => {
     const fd = new FormData();
     fd.append('file', file);
-    return request<WardrobeZipImportResult>('/api/taste/wardrobe/import-zip', { method: 'POST', body: fd });
+    return request<WardrobeZipImportResult>(`${u(userId)}/taste/wardrobe/import-zip`, { method: 'POST', body: fd });
   },
-  addTasteOffer: (payload: {
+  addTasteOffer: (userId: number, payload: {
     kind: 'offer_like' | 'offer_dislike';
     clothing_item: ClothingItem;
     vinted_url?: string;
     note: string;
   }) =>
-    request<TasteSample>('/api/taste/offers/from-url', {
+    request<TasteSample>(`${u(userId)}/taste/offers/from-url`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
   updateTasteSample: (
+    userId: number,
     sampleId: string,
     payload: { note?: string; kind?: 'wardrobe' | 'offer_like' | 'offer_dislike' | 'offer_note'; clothing_item?: ClothingItem },
   ) =>
-    request<TasteSample>(`/api/taste/samples/${sampleId}`, {
+    request<TasteSample>(`${u(userId)}/taste/samples/${sampleId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  deleteTasteSample: (sampleId: string) => request<TasteSample>(`/api/taste/samples/${sampleId}`, { method: 'DELETE' }),
-  updateTasteManualNote: (text: string) =>
-    request<TasteSnapshot>('/api/taste/manual-note', {
+  deleteTasteSample: (userId: number, sampleId: string) => request<TasteSample>(`${u(userId)}/taste/samples/${sampleId}`, { method: 'DELETE' }),
+  updateTasteManualNote: (userId: number, text: string) =>
+    request<TasteSnapshot>(`${u(userId)}/taste/manual-note`, {
       method: 'PUT',
       body: JSON.stringify({ text }),
     }),
-  getCandidates: (params: {
+  getCandidates: (userId: number, params: {
     clothing_item?: string;
     stage?: string;
     decision?: string;
@@ -256,27 +260,29 @@ export const api = {
     if (params.sort && params.sort !== 'score_desc') search.set('sort', params.sort);
     search.set('limit', String(params.limit));
     search.set('offset', String(params.offset));
-    return request<CandidatePage>(`/api/candidates?${search.toString()}`);
+    return request<CandidatePage>(`${u(userId)}/candidates?${search.toString()}`);
   },
-  sendFeedback: (candidateId: string, verdict: 'like' | 'dislike') =>
-    request<CandidateRecord>(`/api/candidates/${candidateId}/feedback`, {
+  sendFeedback: (userId: number, candidateId: string, verdict: 'like' | 'dislike') =>
+    request<CandidateRecord>(`${u(userId)}/candidates/${candidateId}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ verdict, skip_if_unchanged: true }),
     }),
-  sendFeedbackWithComment: (candidateId: string, verdict: 'like' | 'dislike', comment: string) =>
-    request<CandidateRecord>(`/api/candidates/${candidateId}/feedback`, {
+  sendFeedbackWithComment: (userId: number, candidateId: string, verdict: 'like' | 'dislike', comment: string) =>
+    request<CandidateRecord>(`${u(userId)}/candidates/${candidateId}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ verdict, comment, skip_if_unchanged: true }),
     }),
-  sendCandidateNote: (candidateId: string, comment: string) =>
-    request<CandidateRecord>(`/api/candidates/${candidateId}/feedback`, {
+  sendCandidateNote: (userId: number, candidateId: string, comment: string) =>
+    request<CandidateRecord>(`${u(userId)}/candidates/${candidateId}/feedback`, {
       method: 'POST',
       body: JSON.stringify({ comment, skip_if_unchanged: true }),
     }),
   getSettings: () => request<SettingsSnapshot>('/api/settings'),
-  getBlockedBrands: () => request<{ brands: string[] }>('/api/settings/blocked-brands'),
-  updateBlockedBrands: (brands: string[]) =>
-    request<{ brands: string[] }>('/api/settings/blocked-brands', {
+  getUsers: () => request<UserRecord[]>('/api/users'),
+  updateUser: (userId: number, payload: UserUpdate) =>
+    request<UserRecord>(u(userId), { method: 'PUT', body: JSON.stringify(payload) }),
+  updateBlockedBrands: (userId: number, brands: string[]) =>
+    request<{ brands: string[] }>(`${u(userId)}/blocked-brands`, {
       method: 'PUT',
       body: JSON.stringify({ brands }),
     }),
@@ -287,8 +293,8 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  telegramPreview: () => request<{ preview: string }>('/api/telegram/test', { method: 'POST' }),
-  sendTelegramTest: () => request<{ ok: boolean; message_id?: number; chat_id: string }>('/api/telegram/test/send', { method: 'POST' }),
+  telegramPreview: (userId: number) => request<{ preview: string }>(`${u(userId)}/telegram/test`, { method: 'POST' }),
+  sendTelegramTest: (userId: number) => request<{ ok: boolean; message_id?: number; chat_id: string }>(`${u(userId)}/telegram/test/send`, { method: 'POST' }),
   exportData: async (includeCache: boolean) => {
     const { blob, headers } = await requestBlob(`/api/data/export?include_cache=${includeCache ? 'true' : 'false'}`);
     // Trigger a browser save-as download via a temporary object URL.

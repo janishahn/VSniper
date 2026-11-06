@@ -62,6 +62,7 @@ from vsniper.services.operations_service import (
     finish_search_run,
 )
 from vsniper.services.bucket_service import bucket_records, require_bucket
+from vsniper.services.user_service import require_user
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
 
@@ -89,22 +90,6 @@ def _is_price_filter(filter_: SearchFilter) -> bool:
     return filter_.field.strip().lower() == "price"
 
 
-def _normalize_blocked_brands(brands: list[str]) -> list[str]:
-    """Strip, drop empties, and dedupe case-insensitively while keeping first-seen casing/order."""
-    seen: set[str] = set()
-    normalized: list[str] = []
-    for brand in brands:
-        stripped = brand.strip()
-        if not stripped:
-            continue
-        key = stripped.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append(stripped)
-    return normalized
-
-
 def _filter_blocked_brands(raw_candidates: list[dict], blocked_brands: list[str]) -> list[dict]:
     """Drop candidates from a hard-blocked brand before judging — they should never be rated."""
     if not blocked_brands:
@@ -121,12 +106,6 @@ def _filter_blocked_brands(raw_candidates: list[dict], blocked_brands: list[str]
 JUDGE_CONCURRENCY = 8
 # Photos per listing sent to the decision model.
 MAX_LISTING_IMAGES = 4
-
-
-def _alert_threshold(value: int | None, *, fallback: int = 95) -> int:
-    if value is None:
-        value = fallback
-    return max(1, min(100, int(value)))
 
 
 _logger = logging.getLogger(__name__)
@@ -192,27 +171,40 @@ class SearchService:
         self.telegram = telegram
         self.errors = errors
 
-    def all(self) -> list[SearchRecord]:
-        with session_scope() as session:
-            settings = self._get_settings_state(session)
-            # Searches of archived buckets stay stored (disabled) but are hidden.
-            position = {bucket.key: index for index, bucket in enumerate(bucket_records(session))}
-            records = [item for item in session.scalars(select(Search)).all() if item.clothing_item in position]
-            ordered = sorted(records, key=lambda item: (position[item.clothing_item], item.created_at))
-            return [search_to_record(item, default_alert_threshold=settings.alert_threshold) for item in ordered]
+    @staticmethod
+    def _require_search(session: Session, user_id: int, search_id: str) -> Search:
+        model = session.get(Search, search_id)
+        if model is None or model.user_id != user_id:
+            raise KeyError(search_id)
+        return model
 
-    def update(self, search_id: str, payload: SearchUpdate) -> SearchRecord:
+    def all(self, user_id: int) -> list[SearchRecord]:
         with session_scope() as session:
-            model = session.get(Search, search_id)
-            if model is None:
-                raise KeyError(search_id)
+            user = require_user(session, user_id)
+            # Searches of archived buckets stay stored (disabled) but are hidden.
+            position = {bucket.key: index for index, bucket in enumerate(bucket_records(session, user_id))}
+            records = [
+                item
+                for item in session.scalars(select(Search).where(Search.user_id == user_id)).all()
+                if item.clothing_item in position
+            ]
+            ordered = sorted(records, key=lambda item: (position[item.clothing_item], item.created_at))
+            return [search_to_record(item, default_alert_threshold=user.alert_threshold) for item in ordered]
+
+    def scannable(self, user_ids: list[int]) -> list[SearchRecord]:
+        """Enabled searches of these users, for the worker."""
+        return [search for user_id in user_ids for search in self.all(user_id) if search.enabled]
+
+    def update(self, user_id: int, search_id: str, payload: SearchUpdate) -> SearchRecord:
+        with session_scope() as session:
+            model = self._require_search(session, user_id, search_id)
             if payload.clothing_item != model.clothing_item:
                 raise SearchClothingItemImmutable(
                     "A saved search is fixed to its clothing bucket. Edit the target bucket's existing search instead."
                 )
             # Sizes belong to the bucket and are added at scan time.
             filters = ensure_category_filter(
-                _without_size_filter(payload.filters), require_bucket(session, model.clothing_item), strict=True
+                _without_size_filter(payload.filters), require_bucket(session, user_id, model.clothing_item), strict=True
             )
 
             model.query = payload.query
@@ -221,28 +213,18 @@ class SearchService:
             model.alert_threshold = payload.alert_threshold
             model.enabled = payload.enabled
             session.flush()
-            settings = session.get(AppSettingsState, 1)
-            return search_to_record(
-                model,
-                default_alert_threshold=settings.alert_threshold if settings is not None else 9,
-            )
+            return search_to_record(model, default_alert_threshold=require_user(session, user_id).alert_threshold)
 
-    def toggle(self, search_id: str) -> SearchRecord:
+    def toggle(self, user_id: int, search_id: str) -> SearchRecord:
         with session_scope() as session:
-            model = session.get(Search, search_id)
-            if model is None:
-                raise KeyError(search_id)
+            model = self._require_search(session, user_id, search_id)
             model.enabled = not model.enabled
             session.flush()
-            settings = session.get(AppSettingsState, 1)
-            return search_to_record(
-                model,
-                default_alert_threshold=settings.alert_threshold if settings is not None else 9,
-            )
+            return search_to_record(model, default_alert_threshold=require_user(session, user_id).alert_threshold)
 
-    def apply_generated_search_drafts(self, profile_version: int | None = None) -> SearchDraftApplyResult:
+    def apply_generated_search_drafts(self, user_id: int, profile_version: int | None = None) -> SearchDraftApplyResult:
         with session_scope() as session:
-            state = self.preferences.get_taste_state(session)
+            state = self.preferences.get_taste_state(session, user_id)
             if not state.taste_profile:
                 return SearchDraftApplyResult(
                     requested_profile_version=profile_version,
@@ -263,9 +245,11 @@ class SearchService:
             applied: list[str] = []
             unchanged: list[str] = []
             skipped: list[str] = []
-            buckets = {bucket.key: bucket for bucket in bucket_records(session)}
+            buckets = {bucket.key: bucket for bucket in bucket_records(session, user_id)}
             for draft in profile.generated_searches:
-                search = session.scalar(select(Search).where(Search.clothing_item == draft.clothing_item).limit(1))
+                search = session.scalar(
+                    select(Search).where(Search.user_id == user_id, Search.clothing_item == draft.clothing_item).limit(1)
+                )
                 if search is None or draft.clothing_item not in buckets:
                     skipped.append(draft.clothing_item)
                     continue
@@ -307,25 +291,27 @@ class SearchService:
                 ),
             )
 
-    def run_live(self, search_id: str, *, already_claimed: bool = False, trigger: str = "manual") -> SearchRunResult:
+    def run_live(
+        self, user_id: int, search_id: str, *, already_claimed: bool = False, trigger: str = "manual"
+    ) -> SearchRunResult:
+        with session_scope() as session:
+            self._require_search(session, user_id, search_id)
         if not already_claimed:
             if not self.claim_for_run(search_id, timedelta(0), stale_after=_MANUAL_RUN_STALE_AFTER):
-                if not self._search_exists(search_id):
-                    raise KeyError(search_id)
                 raise SearchRunAlreadyClaimed(search_id)
         return self._run(search_id, mode="live", trigger=trigger)
 
-    def run_all_enabled(self) -> list[SearchRunResult]:
-        """Run every enabled search live, sequentially. Per-search failures are skipped so one
-        broken search does not abort the rest; each run claims the DB lock like a normal live run."""
+    def run_all_enabled(self, user_id: int) -> list[SearchRunResult]:
+        """Run every enabled search of the user live, sequentially. Per-search failures are skipped so
+        one broken search does not abort the rest; each run claims the DB lock like a normal live run."""
         with session_scope() as session:
             ids = list(
-                session.scalars(select(Search.id).where(Search.enabled == True))  # noqa: E712
+                session.scalars(select(Search.id).where(Search.user_id == user_id, Search.enabled == True))  # noqa: E712
             )
         results: list[SearchRunResult] = []
         for search_id in ids:
             try:
-                results.append(self.run_live(search_id))
+                results.append(self.run_live(user_id, search_id))
             except SearchRunAlreadyClaimed:
                 continue
             except (SearchNotConfigured, VintedClientError) as exc:
@@ -389,11 +375,6 @@ class SearchService:
                     related_entity_type="search_run",
                     related_entity_id=run_id,
                 )
-
-    @staticmethod
-    def _search_exists(search_id: str) -> bool:
-        with session_scope() as session:
-            return session.get(Search, search_id) is not None
 
     @staticmethod
     def _normalise_listing_payload(raw: dict, search_record: SearchRecord) -> dict:
@@ -589,6 +570,7 @@ class SearchService:
         _persist(memoized_ids)
 
         liked_anchors, disliked_anchors = self.preferences.latest_labeled_anchors(
+            user_id=search_record.user_id,
             clothing_item=search_record.clothing_item,
             limit=5,
         )
@@ -797,18 +779,20 @@ class SearchService:
             search = session.get(Search, search_id)
             if search is None:
                 raise KeyError(search_id)
-            db_settings = self._get_settings_state(session)
-            search_record = search_to_record(search, default_alert_threshold=db_settings.alert_threshold)
-            bucket = require_bucket(session, search_record.clothing_item)
+            user = require_user(session, search.user_id)
+            blocked_brands = list(user.blocked_brands or [])
+            search_record = search_to_record(search, default_alert_threshold=user.alert_threshold)
+            bucket = require_bucket(session, search.user_id, search_record.clothing_item)
             filters = ensure_category_filter(search_record.filters, bucket, strict=False)
             search_record = search_record.model_copy(
                 update={"filters": _apply_size_filter(filters, [str(size.id) for size in bucket.sizes])}
             )
             taste_profile = self.preferences.active_taste_profile(
                 session,
+                user_id=search.user_id,
                 clothing_item=search_record.clothing_item,
             )
-            manual_note = self.preferences.get_taste_state(session).manual_note.strip()
+            manual_note = self.preferences.get_taste_state(session, search.user_id).manual_note.strip()
 
         run_id = create_search_run(
             search_id=search_id,
@@ -830,7 +814,7 @@ class SearchService:
             )
             vinted_status = "ok"
             fetched_count = len(raw_candidates)
-            raw_candidates = _filter_blocked_brands(raw_candidates, db_settings.blocked_brands or [])
+            raw_candidates = _filter_blocked_brands(raw_candidates, blocked_brands)
             blocked_count = fetched_count - len(raw_candidates)
             vinted_detail = (
                 f"Fetched {fetched_count} candidates from Vinted "
@@ -1027,6 +1011,7 @@ class SearchService:
                 # convention as TelegramService.queue_delivery.
                 values = {
                     "id": candidate_id,
+                    "user_id": search.user_id,
                     "search_id": search.id,
                     "external_item_id": external_item_id,
                     "clothing_item": search_record.clothing_item,
@@ -1173,7 +1158,7 @@ class SearchService:
                 .values(run_status="idle", cancel_requested_at=None)
             )
 
-    def request_cancel(self, search_id: str) -> bool:
+    def request_cancel(self, user_id: int, search_id: str) -> bool:
         """Asks a running search to stop, immediately if it's already stale.
 
         Returns False (no-op) if the search isn't currently running — there is nothing to
@@ -1192,9 +1177,7 @@ class SearchService:
           demand instead of waiting for the next scheduled scan attempt.
         """
         with session_scope() as session:
-            search = session.get(Search, search_id)
-            if search is None:
-                raise KeyError(search_id)
+            search = self._require_search(session, user_id, search_id)
             if search.run_status != "running":
                 return False
             claimed_at = as_aware(search.last_claimed_at)
@@ -1219,18 +1202,6 @@ class SearchService:
         with session_scope() as session:
             return settings_to_contract(self._get_settings_state(session), session)
 
-    def get_blocked_brands(self) -> list[str]:
-        with session_scope() as session:
-            return list(self._get_settings_state(session).blocked_brands or [])
-
-    def update_blocked_brands(self, brands: list[str]) -> list[str]:
-        normalized = _normalize_blocked_brands(brands)
-        with session_scope() as session:
-            model = self._get_settings_state(session)
-            model.blocked_brands = normalized
-            session.flush()
-            return list(model.blocked_brands)
-
     def get_scan_interval_seconds(self) -> int:
         """Read-only: the worker polls this each cycle so Settings-page edits take effect
         without a process restart."""
@@ -1242,15 +1213,8 @@ class SearchService:
             model = self._get_settings_state(session)
             if payload.telegram_bot_token is not None:
                 model.telegram_bot_token = payload.telegram_bot_token.strip()
-            if payload.telegram_chat_id is not None:
-                model.telegram_chat_id = payload.telegram_chat_id.strip()
-            telegram_configured, _ = integration_configuration(
-                telegram_bot_token=model.telegram_bot_token,
-                telegram_chat_id=model.telegram_chat_id,
-            )
+            telegram_configured, _ = integration_configuration(telegram_bot_token=model.telegram_bot_token)
             model.telegram_configured = telegram_configured
-            if payload.alert_threshold is not None:
-                model.alert_threshold = _alert_threshold(payload.alert_threshold)
             if payload.scan_interval_seconds is not None:
                 model.scan_interval_seconds = max(30, min(86400, int(payload.scan_interval_seconds)))
             session.flush()

@@ -44,7 +44,7 @@ class TelegramClient:
         if not self.bot_token or self.bot_token == "put-your-telegram-bot-token-here":
             raise TelegramConfigurationError("Telegram bot token is missing. Add TELEGRAM_BOT_TOKEN to the environment.")
         if not chat_id or chat_id == "put-your-telegram-chat-id-here":
-            raise TelegramConfigurationError("Telegram chat id is missing. Add TELEGRAM_CHAT_ID to the environment.")
+            raise TelegramConfigurationError("Telegram chat id is missing. Add it to TELEGRAM_CHAT_IDS.")
         if not text.strip():
             raise TelegramDeliveryError("Telegram message body is empty.", retryable=False)
 

@@ -21,12 +21,22 @@ export type BucketCategory = {
   path: string;
 };
 
+export type BucketSize = {
+  id: number;
+  title: string;
+};
+
+export type BucketSizeGroup = {
+  group: string;
+  sizes: BucketSize[];
+};
+
 export type BucketRecord = {
   key: ClothingItem;
   label: string;
   description: string;
   categories: BucketCategory[];
-  size_keywords: string[];
+  sizes: BucketSize[];
   position: number;
   archived: boolean;
 };
@@ -35,7 +45,7 @@ export type BucketWrite = {
   label: string;
   description: string;
   catalog_ids: number[];
-  size_keywords: string[];
+  sizes: BucketSize[];
 };
 
 export type BucketCreate = BucketWrite & { key: ClothingItem };
@@ -336,12 +346,8 @@ export type JudgmentPromptPreview = {
 };
 
 export type SettingsSnapshot = {
-  vinted_region: string;
-  vinted_cookie: string;
-  vinted_refresh_token: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
-  vinted_configured: boolean;
   telegram_configured: boolean;
   ai_configured: boolean;
   vision_model: string;
@@ -349,12 +355,6 @@ export type SettingsSnapshot = {
   alert_threshold: number;
   scan_interval_seconds: number;
   blocked_brands: string[];
-  session_health: {
-    region: string;
-    status: 'healthy' | 'warning' | 'missing';
-    last_validated_at: string | null;
-    detail: string;
-  };
 };
 
 export type ErrorSource =
@@ -420,11 +420,6 @@ export type AiCategoryStats = {
   last_24h_calls: number;
   last_7d_calls: number;
   last_30d_calls: number;
-};
-
-export type VintedSizesResult = {
-  sizes: string[];
-  region: string;
 };
 
 export type VintedBrandOption = {

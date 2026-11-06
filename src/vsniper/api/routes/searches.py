@@ -5,10 +5,9 @@ from vsniper.domain.contracts import (
     SearchRecord,
     SearchRunResult,
     SearchUpdate,
-    VintedSizesResult,
 )
 from vsniper.integrations.vinted.categories import CategoryFilterError
-from vsniper.integrations.vinted.client import VintedClientError, VintedConfigurationError, VintedSessionError
+from vsniper.integrations.vinted.client import VintedClientError
 from vsniper.services.maintenance_service import get_maintenance_state
 from vsniper.services.search_service import SearchClothingItemImmutable, SearchNotConfigured, SearchRunAlreadyClaimed
 
@@ -49,16 +48,6 @@ def toggle_search(search_id: str) -> SearchRecord:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Search not found") from exc
 
 
-@router.post("/searches/sync-sizes", response_model=VintedSizesResult)
-def sync_sizes() -> VintedSizesResult:
-    return get_state().searches.fetch_profile_sizes()
-
-
-@router.post("/searches/apply-profile-sizes", response_model=VintedSizesResult)
-def apply_profile_sizes() -> VintedSizesResult:
-    return get_state().searches.apply_profile_sizes_to_all()
-
-
 @router.post("/searches/run-all", response_model=list[SearchRunResult])
 def run_all_searches() -> list[SearchRunResult]:
     _reject_if_maintenance()
@@ -78,8 +67,6 @@ def run_search(search_id: str) -> SearchRunResult:
         ) from exc
     except SearchNotConfigured as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    except (VintedConfigurationError, VintedSessionError) as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except VintedClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

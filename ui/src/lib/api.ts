@@ -3,6 +3,7 @@ import type {
   BucketCreate,
   BucketDeleteResult,
   BucketRecord,
+  BucketSizeGroup,
   BucketUpdate,
   BackupImportResult,
   CacheClearResult,
@@ -28,16 +29,12 @@ import type {
   TasteSnapshot,
   VintedBrandOption,
   VintedCatalogNode,
-  VintedSizesResult,
   WardrobeZipImportResult,
 } from '../types';
 
 // Shared shape for the settings PUT payload — used by both the API client and
 // SettingsPage's form state, so the two never drift out of sync.
 type SettingsUpdatePayload = {
-  vinted_region: string;
-  vinted_cookie: string;
-  vinted_refresh_token: string;
   telegram_bot_token: string;
   telegram_chat_id: string;
   alert_threshold: number;
@@ -57,12 +54,7 @@ export class ApiError extends Error {
   ) {
     super(ApiError.describe(status, path, detail?.message));
     this.name = 'ApiError';
-    this.code = detail?.code;
-    this.recoveryPath = detail?.recoveryPath;
   }
-
-  readonly code?: string;
-  readonly recoveryPath?: string;
 
   private static describe(status: number, path: string, detail?: string): string {
     if (detail) return detail;
@@ -76,8 +68,6 @@ export class ApiError extends Error {
 
 type ApiErrorDetail = {
   message?: string;
-  code?: string;
-  recoveryPath?: string;
 };
 
 // FastAPI errors come back as { detail: string } or { detail: [{ msg, ... }] }.
@@ -96,16 +86,8 @@ async function extractDetail(response: Response): Promise<ApiErrorDetail | undef
       if (messages.length) return { message: messages.join('\n') };
     }
     if (data?.detail && typeof data.detail === 'object') {
-      const detail = data.detail as {
-        message?: unknown;
-        code?: unknown;
-        recovery_path?: unknown;
-      };
-      return {
-        message: typeof detail.message === 'string' ? detail.message : JSON.stringify(data.detail),
-        code: typeof detail.code === 'string' ? detail.code : undefined,
-        recoveryPath: typeof detail.recovery_path === 'string' ? detail.recovery_path : undefined,
-      };
+      const detail = data.detail as { message?: unknown };
+      return { message: typeof detail.message === 'string' ? detail.message : JSON.stringify(data.detail) };
     }
   } catch {
     const text = await response.clone().text().catch(() => '');
@@ -191,6 +173,10 @@ export const api = {
   updateBucket: (key: string, payload: BucketUpdate) =>
     request<BucketRecord>(`/api/buckets/${key}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteBucket: (key: string) => request<BucketDeleteResult>(`/api/buckets/${key}`, { method: 'DELETE' }),
+  getVintedSizes: (catalogIds: number[]) =>
+    request<BucketSizeGroup[]>(
+      `/api/vinted-sizes?${new URLSearchParams(catalogIds.map((id) => ['catalog_ids', String(id)])).toString()}`,
+    ),
   getVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog'),
   refreshVintedCatalog: () => request<VintedCatalogNode[]>('/api/vinted-catalog/refresh', { method: 'POST' }),
   updateSearch: (searchId: string, payload: SearchUpdatePayload) =>
@@ -296,23 +282,11 @@ export const api = {
     }),
   searchVintedBrands: (query: string) =>
     request<VintedBrandOption[]>(`/api/vinted/brands?query=${encodeURIComponent(query)}`),
-  validateCookie: (cookie: string) =>
-    request<{
-      region: string;
-      status: 'healthy' | 'warning' | 'missing';
-      last_validated_at: string | null;
-      detail: string;
-    }>('/api/settings/validate-cookie', {
-      method: 'POST',
-      body: JSON.stringify({ cookie }),
-    }),
   saveSettings: (payload: SettingsSavePayload) =>
     request<SettingsSnapshot>('/api/settings', {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
-  syncVintedSizes: () => request<VintedSizesResult>('/api/searches/sync-sizes', { method: 'POST' }),
-  applyProfileSizesToAll: () => request<VintedSizesResult>('/api/searches/apply-profile-sizes', { method: 'POST' }),
   telegramPreview: () => request<{ preview: string }>('/api/telegram/test', { method: 'POST' }),
   sendTelegramTest: () => request<{ ok: boolean; message_id?: number; chat_id: string }>('/api/telegram/test/send', { method: 'POST' }),
   exportData: async (includeCache: boolean) => {

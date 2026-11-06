@@ -67,16 +67,6 @@ export function replaceFilters(
   return placement === 'front' ? [replacement, ...kept] : [...kept, replacement];
 }
 
-export function applySizeFilter(filters: SearchFilter[], sizes: string[]): SearchFilter[] {
-  const values = unique(sizes);
-  return replaceFilters(
-    filters,
-    isSizeFilter,
-    values.length ? { field: 'size', label: 'Sizes', mode: 'include', values } : null,
-    'front',
-  );
-}
-
 export function formatFilter(filter: SearchFilter): string {
   const label = filter.label || filter.field || 'Filter';
   const values = filter.values.length ? filter.values.join(', ') : '—';

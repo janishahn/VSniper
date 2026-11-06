@@ -1,11 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import (
     BlockedBrandsSnapshot,
     BlockedBrandsUpdate,
-    SessionHealth,
     SettingsSnapshot,
     SettingsUpdate,
     VintedBrandOption,
@@ -13,10 +11,6 @@ from vsniper.domain.contracts import (
 from vsniper.integrations.vinted.client import VintedClientError
 
 router = APIRouter()
-
-
-class ValidateCookieRequest(BaseModel):
-    cookie: str
 
 
 @router.get("/settings", response_model=SettingsSnapshot)
@@ -48,7 +42,3 @@ def search_vinted_brands(query: str = "") -> list[VintedBrandOption]:
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return [VintedBrandOption.model_validate(option) for option in options]
 
-
-@router.post("/settings/validate-cookie", response_model=SessionHealth)
-def validate_cookie(payload: ValidateCookieRequest) -> SessionHealth:
-    return get_state().vinted_client.validate_cookie(payload.cookie)

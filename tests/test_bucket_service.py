@@ -35,7 +35,7 @@ def _service(monkeypatch, tmp_path):
     monkeypatch.setattr("vsniper.services.bucket_service.session_scope", fake_session_scope)
     settings = SimpleNamespace(cache_dir=tmp_path / "cache", resolve_path=lambda path: path)
     monkeypatch.setattr("vsniper.services.bucket_service.get_settings", lambda: settings)
-    return BucketService(settings), factory  # type: ignore[arg-type]
+    return BucketService(settings, SimpleNamespace()), factory  # type: ignore[arg-type]
 
 
 def _search(factory, key: str) -> Search | None:
@@ -84,7 +84,7 @@ def test_taste_profile_prompt_and_schema_follow_the_active_buckets() -> None:
             label=label,
             description=description,
             categories=[BucketCategory(id=catalog_id, path=path) for catalog_id, path in categories],
-            size_keywords=[],
+            sizes=[],
             position=index,
             archived=False,
         )
@@ -123,7 +123,7 @@ def test_taste_profile_prompt_and_schema_follow_the_active_buckets() -> None:
         return httpx.Response(200, json={"output": [{"type": "message", "content": [{"type": "output_text", "text": json.dumps(profile)}]}]})
 
     client = OpenAITasteClient(
-        SimpleNamespace(openai_api_key="test-key", openai_vision_model="gpt-6.1-terra", vinted_region="de"),
+        SimpleNamespace(openai_api_key="test-key", openai_vision_model="gpt-6.1-terra"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
     profile = client.build_taste_profile(

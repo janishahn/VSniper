@@ -7,19 +7,19 @@ import pytest
 
 from vsniper.domain.contracts import BucketCategory, BucketRecord, SearchFilter
 from vsniper.integrations.vinted.catalog import parse_catalog_page
-from vsniper.integrations.vinted.categories import CategoryFilterError, buckets_for_size_group, ensure_category_filter
+from vsniper.integrations.vinted.categories import CategoryFilterError, ensure_category_filter
 
 FIXTURE = Path(__file__).parent / "fixtures/vinted/de/catalog_tree.txt"
 SNAPSHOT = Path(__file__).parents[1] / "src/vsniper/integrations/vinted/women_catalog.json"
 
 
-def _bucket(key: str, catalog_ids: list[int], size_keywords: list[str] | None = None) -> BucketRecord:
+def _bucket(key: str, catalog_ids: list[int]) -> BucketRecord:
     return BucketRecord(
         key=key,
         label=key.title(),
         description="",
         categories=[BucketCategory(id=catalog_id, path="") for catalog_id in catalog_ids],
-        size_keywords=size_keywords or [],
+        sizes=[],
         position=0,
         archived=False,
     )
@@ -46,11 +46,3 @@ def test_category_filter_keeps_bucket_ids_and_rejects_others_in_strict_mode() ->
     # Outside ids are dropped; with nothing left the filter covers the whole bucket.
     fallback = ensure_category_filter([narrowed.model_copy(update={"values": ["553"]})], shoes, strict=False)
     assert fallback[0].values == ["16", "2632"]
-
-
-def test_size_groups_map_to_buckets_by_their_keywords() -> None:
-    buckets = [_bucket("schuhe", [16], ["schuhe"]), _bucket("ringe", [553], ["ring"]), _bucket("neu", [9])]
-
-    assert buckets_for_size_group("Schuhe Frauen", buckets) == ["schuhe"]
-    assert buckets_for_size_group("Ringgröße", buckets) == ["ringe"]
-    assert buckets_for_size_group("Größen Frauen", buckets) == []

@@ -21,7 +21,6 @@ from vsniper.domain.contracts import (
     CandidateRecord,
     LearningSnapshot,
     SearchRecord,
-    SessionHealth,
     SettingsSnapshot,
     TasteDirtyCounts,
     TasteManualNote,
@@ -53,18 +52,11 @@ def is_value_configured(value: str, *, placeholder: str) -> bool:
 
 
 def integration_configuration(
-    db_cookie: str | None = None,
     telegram_bot_token: str | None = None,
     telegram_chat_id: str | None = None,
-) -> tuple[bool, bool, bool]:
-    """Returns (vinted_configured, telegram_configured, ai_configured).
-
-    If db_cookie is provided, vinted_configured is derived from it instead of env."""
+) -> tuple[bool, bool]:
+    """Returns (telegram_configured, ai_configured)."""
     runtime = get_settings()
-    if db_cookie is not None:
-        vinted_configured = is_value_configured(db_cookie, placeholder="put-your-vinted-cookie-here")
-    else:
-        vinted_configured = is_value_configured(runtime.vinted_cookie, placeholder="put-your-vinted-cookie-here")
     effective_telegram_bot_token = telegram_bot_token if telegram_bot_token is not None else runtime.telegram_bot_token
     effective_telegram_chat_id = telegram_chat_id if telegram_chat_id is not None else runtime.telegram_chat_id
     telegram_configured = is_value_configured(
@@ -72,21 +64,7 @@ def integration_configuration(
         placeholder="put-your-telegram-bot-token-here",
     ) and is_value_configured(effective_telegram_chat_id, placeholder="put-your-telegram-chat-id-here")
     ai_configured = is_value_configured(runtime.openai_api_key, placeholder="put-your-openai-api-key-here")
-    return vinted_configured, telegram_configured, ai_configured
-
-
-def build_session_health(*, region: str) -> SessionHealth:
-    vinted_configured, _, _ = integration_configuration()
-    return SessionHealth(
-        region=region,
-        status="warning" if vinted_configured else "missing",
-        last_validated_at=None,
-        detail=(
-            "Vinted credentials are present. Live session validation still needs to confirm the cookie against the upstream service."
-            if vinted_configured
-            else "Vinted credentials are missing from the environment. Add a valid cookie to enable live scans."
-        ),
-    )
+    return telegram_configured, ai_configured
 
 
 def as_aware(value: datetime | None) -> datetime | None:
@@ -206,19 +184,14 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
     runtime = get_settings()
     telegram_bot_token = model.telegram_bot_token or runtime.telegram_bot_token
     telegram_chat_id = model.telegram_chat_id or runtime.telegram_chat_id
-    vinted_configured, telegram_configured, ai_configured = integration_configuration(
-        db_cookie=model.vinted_cookie,
+    telegram_configured, ai_configured = integration_configuration(
         telegram_bot_token=telegram_bot_token,
         telegram_chat_id=telegram_chat_id,
     )
     return SettingsSnapshot.model_validate(
         {
-            "vinted_region": model.vinted_region,
-            "vinted_cookie": model.vinted_cookie or "",
-            "vinted_refresh_token": model.vinted_refresh_token or "",
             "telegram_bot_token": telegram_bot_token,
             "telegram_chat_id": telegram_chat_id,
-            "vinted_configured": vinted_configured,
             "telegram_configured": telegram_configured,
             "ai_configured": ai_configured,
             "vision_model": runtime.openai_vision_model,
@@ -226,7 +199,6 @@ def settings_to_contract(model: AppSettingsState, session: Session) -> SettingsS
             "alert_threshold": _coerce_alert_threshold(getattr(model, "alert_threshold", 95)),
             "scan_interval_seconds": getattr(model, "scan_interval_seconds", 1800),
             "blocked_brands": list(model.blocked_brands or []),
-            "session_health": model.session_health or build_session_health(region=model.vinted_region).model_dump(mode="json"),
         }
     )
 

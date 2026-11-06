@@ -14,7 +14,6 @@ from vsniper.core.state import get_state
 from vsniper.domain.contracts import SearchRecord
 from vsniper.services.maintenance_service import worker_activity
 from vsniper.services.operations_service import record_heartbeat
-from vsniper.worker.jobs.check_cookie_expiry import run_once as check_cookie_expiry
 from vsniper.worker.jobs.process_deliveries import run_once as process_deliveries_once
 from vsniper.worker.jobs.prune_records import run_once as prune_records_once
 from vsniper.worker.jobs.scan_search import run_once
@@ -34,7 +33,7 @@ _WORKER_CLAIM_STALE_AFTER = timedelta(seconds=_CYCLE_TIMEOUT_SECONDS + 120)
 # The continuous loop wakes on this short, fixed cadence regardless of the (much larger) scan
 # interval, so it can service maintenance and dispatch staggered scans promptly.
 _POLL_SECONDS = 30
-# Delivery/cookie/prune run on their own fixed cadence, decoupled from the scan interval — those
+# Delivery/prune run on their own fixed cadence, decoupled from the scan interval — those
 # should stay responsive even when scans are spread across a 30+ minute window.
 _MAINTENANCE_TICK_SECONDS = 60
 _TELEGRAM_POLL_TIMEOUT_SECONDS = 25
@@ -84,7 +83,7 @@ def _run_one(search_id: str, search_name: str, interval: int) -> None:
 
 
 def cycle(interval: int) -> None:
-    """Run a single full pass: scan every enabled search at once, then delivery/cookie/prune
+    """Run a single full pass: scan every enabled search at once, then delivery/prune
     maintenance. Used by the `scan-once` command. The continuous loop in the app process instead
     staggers scans across `interval` via `_dispatch_due_scans` so
     requests spread out evenly instead of firing all at once."""
@@ -167,19 +166,6 @@ def _run_maintenance() -> None:
             _logger.info("Processed error notifications: %s", notification_result)
     except Exception:
         _logger.warning("error notification processing failed", exc_info=True)
-
-    record_heartbeat(owner=_WORKER_OWNER, cycle_count=_cycle_count, phase="check_cookie_expiry")
-
-    with worker_activity("check_cookie_expiry") as active:
-        if not active:
-            dispose_engine()
-            _logger.info("cookie expiry check skipped: maintenance is active")
-            return
-        try:
-            check_cookie_expiry()
-        except Exception as exc:
-            _logger.warning("cookie expiry check failed", exc_info=True)
-            _record_worker_error("check_cookie_expiry", "Cookie expiry check failed", exc)
 
     record_heartbeat(owner=_WORKER_OWNER, cycle_count=_cycle_count, phase="auto_taste_recompute")
     with worker_activity("auto_taste_recompute") as active:
@@ -292,7 +278,7 @@ def _run_continuous_loop(interval_override: int | None) -> None:
     """Spreads search scans evenly across the (configurable) scan interval instead of firing
     them all at once, so N searches over an interval-second window each get their own turn
     roughly interval/N seconds apart — this reduces the chance of several concurrent requests
-    tripping Vinted's abuse detection. Delivery/cookie/prune maintenance runs on its own fixed,
+    tripping Vinted's abuse detection. Delivery/prune maintenance runs on its own fixed,
     short cadence (`_MAINTENANCE_TICK_SECONDS`), independent of the scan interval."""
     last_maintenance_at: float | None = None
     next_scan_dispatch_at: float | None = None

@@ -18,8 +18,8 @@ class Bucket(Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # Vinted women's catalog ids this bucket covers; searches and drafts pick from these.
     catalog_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
-    # Fragments matched against Vinted size-group descriptions to apply account sizes.
-    size_keywords: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    # Vinted sizes searched for this bucket, as [{"id": 4, "title": "M"}]; empty searches all sizes.
+    sizes: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -184,19 +184,12 @@ class AppSettingsState(Base):
     __tablename__ = "app_settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    vinted_region: Mapped[str] = mapped_column(String(16), nullable=False)
-    vinted_cookie: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    vinted_refresh_token: Mapped[str] = mapped_column(Text, default="", nullable=False)
     telegram_bot_token: Mapped[str] = mapped_column(Text, default="", nullable=False)
     telegram_chat_id: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     telegram_configured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     error_telegram_notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     alert_threshold: Mapped[int] = mapped_column(Integer, default=95, nullable=False)
     scan_interval_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
-    session_health: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    # ISO timestamp of the refresh-token expiry we last warned about. Kept in its own column
-    # (not session_health) because session_health is replaced wholesale on every health refresh.
-    refresh_token_expiry_warning_sent_for: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Brand titles (as returned by Vinted's own brand catalog) that are hard-excluded from every
     # scan before judging — matched case-insensitively against the candidate's extracted brand.
     blocked_brands: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)

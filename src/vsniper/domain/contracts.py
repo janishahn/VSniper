@@ -35,12 +35,23 @@ class BucketCategory(BaseModel):
     path: str
 
 
+class BucketSize(BaseModel):
+    id: int
+    title: str
+
+
+class BucketSizeGroup(BaseModel):
+    # Vinted's size system, e.g. "WOMEN-LT" (letter sizes) or "SHOES".
+    group: str
+    sizes: list[BucketSize]
+
+
 class BucketRecord(BaseModel):
     key: ClothingItem
     label: str
     description: str
     categories: list[BucketCategory]
-    size_keywords: list[str]
+    sizes: list[BucketSize]
     position: int
     archived: bool
 
@@ -49,7 +60,7 @@ class BucketWrite(BaseModel):
     label: str = Field(min_length=1, max_length=80)
     description: str = Field(default="", max_length=500)
     catalog_ids: list[int] = Field(min_length=1)
-    size_keywords: list[str] = Field(default_factory=list)
+    sizes: list[BucketSize] = Field(default_factory=list)
 
 
 class BucketCreate(BucketWrite):
@@ -371,20 +382,9 @@ class JudgmentPromptPreview(BaseModel):
     tokenizer: Literal["o200k_base"] = "o200k_base"
 
 
-class SessionHealth(BaseModel):
-    region: str
-    status: Literal["healthy", "warning", "missing"]
-    last_validated_at: datetime | None
-    detail: str
-
-
 class SettingsSnapshot(BaseModel):
-    vinted_region: str
-    vinted_cookie: str = ""
-    vinted_refresh_token: str = ""
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
-    vinted_configured: bool
     telegram_configured: bool
     ai_configured: bool
     vision_model: str
@@ -392,7 +392,6 @@ class SettingsSnapshot(BaseModel):
     alert_threshold: int = 95
     scan_interval_seconds: int = 1800
     blocked_brands: list[str] = Field(default_factory=list)
-    session_health: SessionHealth
 
 
 ErrorSource = Literal["api", "search", "candidate_judgment", "taste_recompute", "telegram", "worker"]
@@ -621,21 +620,10 @@ class TelegramUpdateResult(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    vinted_region: str
-    vinted_cookie: str | None = None
-    vinted_refresh_token: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     alert_threshold: int | None = None
     scan_interval_seconds: int | None = None
-
-    @field_validator("vinted_region")
-    @classmethod
-    def _validate_de_region(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        if normalized != "de":
-            raise ValueError("Only the de Vinted region is supported.")
-        return normalized
 
     @field_validator("alert_threshold")
     @classmethod
@@ -663,11 +651,6 @@ class BlockedBrandsUpdate(BaseModel):
 class VintedBrandOption(BaseModel):
     id: str
     title: str
-
-
-class VintedSizesResult(BaseModel):
-    sizes: list[str]
-    region: str
 
 
 class LabeledExample(BaseModel):

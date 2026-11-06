@@ -26,6 +26,8 @@ from vsniper.domain.contracts import (
     TasteProfile,
 )
 from vsniper.domain.scoring.service import build_judgment_trace
+from vsniper.integrations.vinted.client import VintedSearchError
+from vsniper.integrations.vinted.item_page import ItemPage
 from vsniper.integrations.openai.client import (
     CandidateImageInput,
     OpenAIIntegrationError,
@@ -97,6 +99,8 @@ def _make_service() -> SearchService:
     service.settings = MagicMock()
     service.settings.openai_decision_model = "gpt-6-luna"
     service.vinted_client = MagicMock()
+    # Without a page the listing keeps its catalog data, as when Vinted refuses the item page.
+    service.vinted_client.fetch_item_page.side_effect = VintedSearchError("no page", retryable=True)
     service.taste_client = MagicMock()
     service.preferences = MagicMock()
     service.preferences.latest_labeled_anchors.return_value = ([], [])
@@ -160,6 +164,45 @@ def test_all_candidates_are_judged() -> None:
     assert len(judged) == 5
     assert service.taste_client.judge_candidate.call_count == 5
     assert len([trace for trace in traces.values() if trace.score_10 == 80]) == 5
+
+
+def test_item_page_details_reach_the_judge_and_a_failed_page_keeps_catalog_data() -> None:
+    service = _make_service()
+    page = ItemPage(
+        title="Leinenhose",
+        brand="Brand",
+        size="M",
+        condition="Sehr gut",
+        color="Beige",
+        material="Leinen",
+        description="Weite Hose aus Leinen",
+        price_eur=20.0,
+        image_urls=["https://images1.vinted.net/a.webp", "https://images1.vinted.net/b.webp"],
+    )
+
+    def _fetch(url: str) -> ItemPage:
+        if url.endswith("item-2"):
+            raise VintedSearchError("blocked", retryable=True)
+        return page
+
+    service.vinted_client.fetch_item_page.side_effect = _fetch
+    downloaded: dict[str, list[str]] = {}
+    jpeg = _jpeg()
+
+    def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
+        downloaded[candidate_id] = image_urls
+        return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
+
+    service.taste_client.judge_candidate.return_value = _judgment(10)
+    with patch.object(service, "_download_candidate_image", side_effect=_download):
+        _call_judge(service, [_raw("item-1"), _raw("item-2")], _search(), TasteProfile(summary="", taste_prompt=""))
+
+    judged = {call.kwargs["candidate"].candidate_id: call.kwargs["candidate"] for call in service.taste_client.judge_candidate.call_args_list}
+    assert judged["search-001:item-1"].description == "Weite Hose aus Leinen"
+    assert judged["search-001:item-1"].condition == "Sehr gut"
+    assert downloaded["search-001:item-1"] == page.image_urls
+    assert judged["search-001:item-2"].description == ""
+    assert downloaded["search-001:item-2"] == ["https://images.vinted.de/item-2.jpg"]
 
 
 def test_already_judged_candidate_is_reused_not_rejudged(memo_db) -> None:

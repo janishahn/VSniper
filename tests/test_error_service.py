@@ -35,8 +35,6 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
         session.add(
             AppSettingsState(
                 id=1,
-                vinted_region="de",
-                vinted_cookie="session-cookie-secret",
                 telegram_bot_token="telegram-bot-secret",
                 telegram_chat_id="chat-123",
                 telegram_configured=True,
@@ -45,7 +43,6 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
         )
 
     runtime = SimpleNamespace(
-        vinted_cookie="put-your-vinted-cookie-here",
         telegram_bot_token="put-your-telegram-bot-token-here",
         openai_api_key="put-your-openai-api-key-here",
     )

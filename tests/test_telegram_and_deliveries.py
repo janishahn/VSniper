@@ -44,45 +44,6 @@ def _build_telegram_service_without_init() -> TelegramService:
     return TelegramService.__new__(TelegramService)
 
 
-def test_refresh_token_expiry_warning_sends_once_and_persists_marker(monkeypatch) -> None:
-    expiry = datetime.now(UTC) + timedelta(hours=2)
-    settings_row = SimpleNamespace(
-        telegram_bot_token='bot-token',
-        telegram_chat_id='chat-123',
-        session_health={},
-        refresh_token_expiry_warning_sent_for=None,
-    )
-    sent_messages: list[dict[str, str]] = []
-
-    service = _build_telegram_service_without_init()
-    service.vinted_client = SimpleNamespace(get_refresh_token_expiry=lambda: expiry)
-    service.telegram_client = SimpleNamespace(
-        bot_token='',
-        send_message=lambda **kwargs: sent_messages.append(kwargs),
-    )
-
-    class FakeSession:
-        def get(self, model, key):
-            if model is AppSettingsState and key == 1:
-                return settings_row
-            return None
-
-    @contextmanager
-    def fake_session_scope():
-        yield FakeSession()
-
-    monkeypatch.setattr('vsniper.services.telegram_service.session_scope', fake_session_scope)
-
-    service.check_refresh_token_expiry()
-    service.check_refresh_token_expiry()
-
-    assert len(sent_messages) == 1
-    assert sent_messages[0]['chat_id'] == 'chat-123'
-    assert 'Refresh-Token läuft bald ab' in sent_messages[0]['text']
-    assert settings_row.refresh_token_expiry_warning_sent_for == expiry.isoformat()
-    assert settings_row.session_health == {}
-
-
 def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> None:
     service = _build_telegram_service_without_init()
     service.settings = SimpleNamespace(telegram_chat_id='chat-123')
@@ -386,7 +347,7 @@ def test_borderline_probe_sends_the_best_recent_near_miss_once_a_day(monkeypatch
         )
 
     with factory() as session:
-        session.add(AppSettingsState(id=1, vinted_region='de', telegram_bot_token='bot-token', telegram_chat_id='523'))
+        session.add(AppSettingsState(id=1, telegram_bot_token='bot-token', telegram_chat_id='523'))
         session.add_all([
             candidate('near-85', 85),
             candidate('near-88', 88),

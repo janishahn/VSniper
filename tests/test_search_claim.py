@@ -16,7 +16,6 @@ from sqlalchemy.orm import sessionmaker
 from vsniper.core.database import Base
 from vsniper.db.models import AppSettingsState, Bucket, Candidate, Search, SearchRun
 from vsniper.domain.contracts import ScoreTrace, SearchRecord, SearchUpdate, TasteProfile
-from vsniper.services._mapping import build_session_health
 from vsniper.services.search_service import (
     SearchClothingItemImmutable,
     SearchRunAlreadyClaimed,
@@ -214,7 +213,7 @@ def _wire_run(service, factory, *, run_search):
     """Stub the Phase-1 dependencies _run reads so we can drive it end-to-end with a fake
     Vinted client. run_search is the callable used as VintedClient.run_search."""
     with _session_scope_of(factory) as session:
-        session.add(AppSettingsState(id=1, vinted_region="de"))
+        session.add(AppSettingsState(id=1))
     service.settings = type("Settings", (), {"openai_decision_model": "gpt-6-luna"})()
 
     profile = TasteProfile(summary="", taste_prompt="", transparency_labels=[])
@@ -230,10 +229,6 @@ def _wire_run(service, factory, *, run_search):
         "Vinted",
         (),
         {
-            "set_cookie": staticmethod(lambda *a, **k: None),
-            "set_refresh_token": staticmethod(lambda *a, **k: None),
-            "sync_persisted_credentials": staticmethod(lambda *a, **k: None),
-            "get_session_health": staticmethod(lambda *, region, force=False: build_session_health(region=region)),
             "run_search": staticmethod(run_search),
         },
     )()
@@ -266,6 +261,20 @@ def test_failed_preview_does_not_touch_a_concurrent_live_claim(monkeypatch, tmp_
     # The preview failed but must leave the worker's claim untouched, or claim_for_run would
     # let a second worker reclaim and re-scan mid-run.
     assert _row(factory).run_status == "running"
+
+
+def test_scan_searches_the_bucket_sizes(monkeypatch, tmp_path) -> None:
+    service, factory = _setup(monkeypatch, tmp_path)
+    searched: list[SearchRecord] = []
+    _wire_run(service, factory, run_search=lambda search: searched.append(search) or [])
+    with _session_scope_of(factory) as session:
+        session.get(Bucket, "hosen").sizes = [{"id": 4, "title": "M"}, {"id": 5, "title": "L"}]
+    service._judge_candidates = lambda *args, **kwargs: ({}, {}, 0, 0)
+
+    service._run("s1", mode="preview")
+
+    filters = {item.field: item.values for item in searched[0].filters}
+    assert filters == {"category": ["9"], "size": ["4", "5"]}
 
 
 # --- #3 (related): re-persisting a candidate upserts rather than IntegrityError-ing ---

@@ -1,8 +1,16 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from vsniper.core.state import get_state
-from vsniper.domain.contracts import BucketCreate, BucketDeleteResult, BucketRecord, BucketUpdate, VintedCatalogNode
+from vsniper.domain.contracts import (
+    BucketCreate,
+    BucketDeleteResult,
+    BucketRecord,
+    BucketSizeGroup,
+    BucketUpdate,
+    VintedCatalogNode,
+)
 from vsniper.integrations.vinted.catalog import CatalogRefreshError
+from vsniper.integrations.vinted.client import VintedClientError
 from vsniper.services.bucket_service import BucketInvalid, BucketNotFound
 
 router = APIRouter(tags=["buckets"])
@@ -37,6 +45,14 @@ def delete_bucket(key: str) -> BucketDeleteResult:
         return get_state().buckets.delete(key)
     except BucketNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Bucket not found") from exc
+
+
+@router.get("/vinted-sizes", response_model=list[BucketSizeGroup])
+def vinted_sizes(catalog_ids: list[int] = Query(default_factory=list)) -> list[BucketSizeGroup]:
+    try:
+        return get_state().buckets.size_options(catalog_ids)
+    except VintedClientError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.get("/vinted-catalog", response_model=list[VintedCatalogNode])

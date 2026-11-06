@@ -24,16 +24,6 @@ def normalise_lookup_text(value: str) -> str:
     )
 
 
-def buckets_for_size_group(description: str, buckets: list[BucketRecord]) -> list[str]:
-    """Bucket keys whose size keywords match a Vinted size-group description ("Schuhe Frauen")."""
-    normalized = normalise_lookup_text(description)
-    return [
-        bucket.key
-        for bucket in buckets
-        if any(normalise_lookup_text(keyword) in normalized for keyword in bucket.size_keywords if keyword.strip())
-    ]
-
-
 def default_category_filter(bucket: BucketRecord) -> SearchFilter:
     return SearchFilter(
         field="category",

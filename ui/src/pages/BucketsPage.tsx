@@ -7,14 +7,14 @@ import { Empty, Loading, Modal, PageHeader } from '../components/ui';
 import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { queryKeys } from '../lib/queryKeys';
-import type { BucketRecord, VintedCatalogNode } from '../types';
+import type { BucketRecord, BucketSize, VintedCatalogNode } from '../types';
 
 type BucketForm = {
   key: string;
   label: string;
   description: string;
   catalogIds: number[];
-  sizeKeywords: string;
+  sizes: BucketSize[];
 };
 
 const KEY_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
@@ -37,11 +37,11 @@ function formFromBucket(bucket: BucketRecord): BucketForm {
     label: bucket.label,
     description: bucket.description,
     catalogIds: bucket.categories.map((category) => category.id),
-    sizeKeywords: bucket.size_keywords.join(', '),
+    sizes: bucket.sizes,
   };
 }
 
-const emptyForm: BucketForm = { key: '', label: '', description: '', catalogIds: [], sizeKeywords: '' };
+const emptyForm: BucketForm = { key: '', label: '', description: '', catalogIds: [], sizes: [] };
 
 function pathTail(path: string): string {
   return path.split(' > ').slice(1).join(' › ');
@@ -129,6 +129,72 @@ function CatalogPicker({
   );
 }
 
+function SizePicker({
+  catalogIds,
+  selected,
+  onChange,
+}: {
+  catalogIds: number[];
+  selected: BucketSize[];
+  onChange: (sizes: BucketSize[]) => void;
+}) {
+  const sortedIds = [...catalogIds].sort((a, b) => a - b);
+  const sizesQuery = useQuery({
+    queryKey: queryKeys.vintedSizes(sortedIds),
+    queryFn: () => api.getVintedSizes(sortedIds),
+    enabled: sortedIds.length > 0,
+    staleTime: Infinity,
+  });
+  const selectedIds = new Set(selected.map((size) => size.id));
+  const offered = new Set((sizesQuery.data ?? []).flatMap((group) => group.sizes.map((size) => size.id)));
+  const unlisted = selected.filter((size) => !offered.has(size.id));
+
+  const toggle = (size: BucketSize) =>
+    onChange(selectedIds.has(size.id) ? selected.filter((value) => value.id !== size.id) : [...selected, size]);
+
+  return (
+    <div className="stack" style={{ gap: 'var(--s2)' }}>
+      <span className="field">Sizes</span>
+      <p className="hint">The search only returns listings in these sizes. Leave all unticked to search every size.</p>
+      <ErrorText error={sizesQuery.error} prefix="Vinted sizes" />
+      {!sortedIds.length ? <p className="state-line">Pick a category to see its sizes.</p> : null}
+      {sizesQuery.isLoading ? <p className="state-line">Loading sizes…</p> : null}
+      {sizesQuery.data && sortedIds.length > 0 && !sizesQuery.data.length ? (
+        <p className="state-line">Vinted has no sizes for these categories.</p>
+      ) : null}
+      {sortedIds.length > 0 ? (sizesQuery.data ?? []).map((group) => (
+        <div key={group.group} className="size-group" role="group" aria-label={`Sizes ${group.group}`}>
+          {(sizesQuery.data?.length ?? 0) > 1 ? <span className="small muted">{group.group}</span> : null}
+          <div className="size-options">
+            {group.sizes.map((size) => (
+              <label key={size.id} className="catalog-node">
+                <input type="checkbox" checked={selectedIds.has(size.id)} onChange={() => toggle(size)} />
+                {size.title}
+              </label>
+            ))}
+          </div>
+        </div>
+      )) : null}
+      {unlisted.length > 0 ? (
+        <div className="chips">
+          {unlisted.map((size) => (
+            <button
+              type="button"
+              className="chip"
+              key={size.id}
+              onClick={() => toggle(size)}
+              title="Not offered for the chosen categories. Click to remove."
+            >
+              {size.title}
+              <span className="chip-x" aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BucketModal({
   bucket,
   onClose,
@@ -150,7 +216,7 @@ function BucketModal({
         label: form.label.trim(),
         description: form.description.trim(),
         catalog_ids: form.catalogIds,
-        size_keywords: form.sizeKeywords.split(',').map((value) => value.trim()).filter(Boolean),
+        sizes: form.sizes,
       };
       return isNew
         ? api.createBucket({ ...payload, key })
@@ -226,18 +292,7 @@ function BucketModal({
         <CatalogPicker selected={form.catalogIds} onChange={(catalogIds) => setForm({ ...form, catalogIds })} />
       </div>
       <div className="builder-block">
-        <label className="field">
-          Size keywords
-          <input
-            value={form.sizeKeywords}
-            onChange={(event) => setForm({ ...form, sizeKeywords: event.target.value })}
-            placeholder="schuhe"
-          />
-          <span className="hint">
-            “Sync sizes” applies your Vinted account sizes from size groups whose name contains one of these words.
-            Leave empty to set sizes by hand.
-          </span>
-        </label>
+        <SizePicker catalogIds={form.catalogIds} selected={form.sizes} onChange={(sizes) => setForm({ ...form, sizes })} />
       </div>
     </Modal>
   );
@@ -263,7 +318,7 @@ function BucketRow({
         label: bucket.label,
         description: bucket.description,
         catalog_ids: bucket.categories.map((category) => category.id),
-        size_keywords: bucket.size_keywords,
+        sizes: bucket.sizes,
         archived: false,
       }),
     onSuccess: invalidate,
@@ -285,6 +340,9 @@ function BucketRow({
             </span>
           ))}
         </div>
+        <p className="small muted">
+          {bucket.sizes.length ? `Sizes: ${bucket.sizes.map((size) => size.title).join(', ')}` : 'All sizes'}
+        </p>
       </div>
       <div className="search-buttons">
         {bucket.archived ? (

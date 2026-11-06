@@ -29,11 +29,9 @@ from vsniper.domain.contracts import (
     SearchRecord,
     SearchRunResult,
     SearchUpdate,
-    SessionHealth,
     SettingsSnapshot,
     SettingsUpdate,
     TasteProfile,
-    VintedSizesResult,
 )
 from vsniper.domain.scoring.service import (
     build_failed_judgment_trace,
@@ -48,10 +46,9 @@ from vsniper.integrations.openai.client import (
 from vsniper.integrations.openai.pricing import compute_cost
 from vsniper.integrations._retry import retry_transient
 from vsniper.integrations.vinted.client import VintedClient, VintedClientError, VintedSearchError, VintedSessionError
-from vsniper.integrations.vinted.categories import buckets_for_size_group, ensure_category_filter
+from vsniper.integrations.vinted.categories import ensure_category_filter
 from vsniper.services._mapping import (
     as_aware,
-    build_session_health,
     extract_condition,
     integration_configuration,
     search_to_record,
@@ -68,14 +65,19 @@ from vsniper.services.bucket_service import bucket_records, require_bucket
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
 
-SESSION_HEALTH_REFRESH_INTERVAL = timedelta(minutes=15)
+# Item pages are fetched for newly judged listings only; two at a time keeps the pace modest.
+_ITEM_PAGE_CONCURRENCY = 2
 _CACHE_MAX_AGE_DAYS = 30
 _CACHE_MAX_SIZE_MB = 500
 _MANUAL_RUN_STALE_AFTER = timedelta(minutes=30)
 
 
+def _without_size_filter(filters: list[SearchFilter]) -> list[SearchFilter]:
+    return [f for f in filters if f.field.strip().lower() != "size"]
+
+
 def _apply_size_filter(filters: list[SearchFilter], sizes: list[str]) -> list[SearchFilter]:
-    without_size = [f for f in filters if f.field.strip().lower() != "size"]
+    without_size = _without_size_filter(filters)
     if not sizes:
         return without_size
     size_filter = SearchFilter(field="size", label="Sizes", mode="include", values=sizes)
@@ -208,7 +210,10 @@ class SearchService:
                 raise SearchClothingItemImmutable(
                     "A saved search is fixed to its clothing bucket. Edit the target bucket's existing search instead."
                 )
-            filters = ensure_category_filter(payload.filters, require_bucket(session, model.clothing_item), strict=True)
+            # Sizes belong to the bucket and are added at scan time.
+            filters = ensure_category_filter(
+                _without_size_filter(payload.filters), require_bucket(session, model.clothing_item), strict=True
+            )
 
             model.query = payload.query
             model.region = payload.region
@@ -234,47 +239,6 @@ class SearchService:
                 model,
                 default_alert_threshold=settings.alert_threshold if settings is not None else 9,
             )
-
-    def fetch_profile_sizes(self) -> VintedSizesResult:
-        with session_scope() as session:
-            region = self._get_settings_state(session).vinted_region
-        sizes = self.vinted_client.fetch_user_sizes(region=region)
-        return VintedSizesResult(sizes=sizes, region=region)
-
-    def apply_profile_sizes_to_all(self) -> VintedSizesResult:
-        with session_scope() as session:
-            region = self._get_settings_state(session).vinted_region
-            buckets = bucket_records(session)
-        grouped = self.vinted_client.fetch_user_sizes_grouped(region=region)
-        sizes_by_item: dict[str, list[str]] = {}
-        unmapped_descriptions: set[str] = set()
-        for entry in grouped:
-            items = buckets_for_size_group(entry["group_description"], buckets)
-            if not items:
-                unmapped_descriptions.add(entry["group_description"])
-                continue
-            for item in items:
-                sizes_by_item.setdefault(item, [])
-                if entry["title"] not in sizes_by_item[item]:
-                    sizes_by_item[item].append(entry["title"])
-        if unmapped_descriptions:
-            _logger.info(
-                "Skipped Vinted size groups with no clothing-item mapping: %s",
-                ", ".join(sorted(unmapped_descriptions)),
-            )
-
-        with session_scope() as session:
-            models = session.scalars(select(Search)).all()
-            for model in models:
-                sizes = sizes_by_item.get(model.clothing_item)
-                if not sizes:
-                    continue
-                existing = [SearchFilter.model_validate(f) for f in model.filters]
-                model.filters = [f.model_dump(mode="json") for f in _apply_size_filter(existing, sizes)]
-            session.flush()
-
-        flat_sizes = sorted({entry["title"] for entry in grouped})
-        return VintedSizesResult(sizes=flat_sizes, region=region)
 
     def apply_generated_search_drafts(self, profile_version: int | None = None) -> SearchDraftApplyResult:
         with session_scope() as session:
@@ -305,8 +269,7 @@ class SearchService:
                 if search is None or draft.clothing_item not in buckets:
                     skipped.append(draft.clothing_item)
                     continue
-                # Preserve user-owned sizes and budget — taste drafts only describe what to find.
-                existing_size_filters = [f for f in (search.filters or []) if (f.get("field") or "").strip().lower() == "size"]
+                # Preserve the user's budget; sizes come from the bucket. Drafts only describe what to find.
                 existing_price_filters = [
                     f for f in (search.filters or []) if (f.get("field") or "").strip().lower() == "price"
                 ]
@@ -315,7 +278,6 @@ class SearchService:
                 ]
                 filters = ensure_category_filter(draft_filters, buckets[draft.clothing_item], strict=False)
                 filter_payload = [
-                    *existing_size_filters,
                     *existing_price_filters,
                     *(item.model_dump(mode="json") for item in filters),
                 ]
@@ -636,6 +598,7 @@ class SearchService:
             selected = []
 
         if selected:
+            self._add_item_page_details([raw for _, raw in selected], search_record=search_record)
             _evict_stale_cache(self.settings.resolve_path(self.settings.cache_dir) / "candidate-images")
             download_failed_ids: list[str] = []
             with ThreadPoolExecutor(max_workers=min(len(selected), 8)) as pool:
@@ -705,6 +668,41 @@ class SearchService:
                 cid for cid, _ in selected if stages.get(cid) == "vlm_judged"
             )
         return traces, stages, persisted_alert_count, persisted_queued_deliveries
+
+    def _add_item_page_details(self, raws: list[dict], *, search_record: SearchRecord) -> None:
+        """Add each listing's description, photos and attributes from its item page.
+
+        The catalog search returns one photo and no description. A listing whose page fails
+        keeps its catalog data and is still judged."""
+        failures: list[VintedClientError] = []
+        with ThreadPoolExecutor(max_workers=_ITEM_PAGE_CONCURRENCY) as pool:
+            futures = [pool.submit(self.vinted_client.fetch_item_page, raw["url"]) for raw in raws]
+            for raw, future in zip(raws, futures, strict=True):
+                try:
+                    page = future.result()
+                except VintedClientError as exc:
+                    _logger.warning("item page for %s failed: %s", raw["url"], exc)
+                    failures.append(exc)
+                    continue
+                raw["description"] = page.description
+                if page.image_urls:
+                    raw["image_urls"] = page.image_urls
+                listing = raw.get("raw_listing")
+                if isinstance(listing, dict):
+                    listing.update(status=page.condition, color=page.color, material=page.material)
+        # Most pages failing points at a parser drift or a block, which would otherwise only
+        # show up as judgments made without descriptions.
+        errors = getattr(self, "errors", None)
+        if failures and len(failures) * 2 >= len(raws) and errors is not None:
+            errors.record(
+                source="search",
+                operation="fetch_item_pages",
+                summary=f"Item details missing for {len(failures)} of {len(raws)} listings",
+                exception=failures[-1],
+                details={"search_id": search_record.id},
+                related_entity_type="search",
+                related_entity_id=search_record.id,
+            )
 
     def _judge_one(
         self,
@@ -801,31 +799,16 @@ class SearchService:
                 raise KeyError(search_id)
             db_settings = self._get_settings_state(session)
             search_record = search_to_record(search, default_alert_threshold=db_settings.alert_threshold)
+            bucket = require_bucket(session, search_record.clothing_item)
+            filters = ensure_category_filter(search_record.filters, bucket, strict=False)
             search_record = search_record.model_copy(
-                update={
-                    "filters": ensure_category_filter(
-                        search_record.filters,
-                        require_bucket(session, search_record.clothing_item),
-                        strict=False,
-                    )
-                }
-            )
-            # The worker holds a long-lived VintedClient; re-apply the persisted cookie so a
-            # cookie pasted in the web UI (another process) takes effect on the next scan instead
-            # of after a restart. The DB is the source of truth for credentials.
-            self.vinted_client.sync_persisted_credentials(
-                db_settings.vinted_cookie or "", db_settings.vinted_refresh_token or ""
+                update={"filters": _apply_size_filter(filters, [str(size.id) for size in bucket.sizes])}
             )
             taste_profile = self.preferences.active_taste_profile(
                 session,
                 clothing_item=search_record.clothing_item,
             )
             manual_note = self.preferences.get_taste_state(session).manual_note.strip()
-            session_health_needs_refresh = False
-            if mode == "live":
-                _, session_health_needs_refresh = self._session_health_needs_refresh(
-                    db_settings, region=search_record.region
-                )
 
         run_id = create_search_run(
             search_id=search_id,
@@ -841,16 +824,8 @@ class SearchService:
                 raise SearchNotConfigured(
                     f"Search '{search_record.name}' needs a Vinted query before it can be run."
                 )
-            session_health_json = (
-                self._fetch_session_health_json(region=search_record.region)
-                if session_health_needs_refresh
-                else None
-            )
-            if session_health_json is not None:
-                vinted_status = str(session_health_json.get("status") or "unknown")
-                vinted_detail = str(session_health_json.get("detail") or "")[:500] or None
             raw_candidates = retry_transient(
-                lambda: self.vinted_client.run_search(search_record, validate_session=False),
+                lambda: self.vinted_client.run_search(search_record),
                 label=f"Vinted search '{search_record.name}'",
             )
             vinted_status = "ok"
@@ -926,8 +901,6 @@ class SearchService:
                 search = session.get(Search, search_id)
                 if search is None:
                     raise KeyError(search_id)
-                if session_health_json is not None:
-                    self._get_settings_state(session).session_health = session_health_json
                 result = self._persist_run(
                     session=session,
                     search=search,
@@ -1242,42 +1215,9 @@ class SearchService:
             raise RuntimeError("Settings row is missing from SQLite storage")
         return model
 
-    @staticmethod
-    def _coerce_session_health(payload: dict | None, *, region: str) -> SessionHealth:
-        if payload:
-            return SessionHealth.model_validate(payload)
-        return build_session_health(region=region)
-
-    @staticmethod
-    def _session_health_is_stale(*, health: SessionHealth, region: str, now: datetime) -> bool:
-        if health.region != region:
-            return True
-        if health.status == "missing":
-            return False
-        if health.last_validated_at is None:
-            return True
-        return health.last_validated_at < now - SESSION_HEALTH_REFRESH_INTERVAL
-
-    def _session_health_needs_refresh(
-        self, model: AppSettingsState, *, region: str, force: bool = False
-    ) -> tuple[SessionHealth, bool]:
-        """Read-only: returns (current health, whether a network refresh is due). No lock-held I/O."""
-        current_health = self._coerce_session_health(model.session_health, region=model.vinted_region)
-        now = datetime.now(UTC)
-        needs = force or self._session_health_is_stale(health=current_health, region=region, now=now)
-        return current_health, needs
-
-    def _fetch_session_health_json(self, *, region: str, force: bool = False) -> dict:
-        """Network fetch (no DB lock held) returning the JSON to persist into model.session_health."""
-        return self.vinted_client.get_session_health(region=region, force=force).model_dump(mode="json")
-
     def get_app_settings(self) -> SettingsSnapshot:
         with session_scope() as session:
-            model = self._get_settings_state(session)
-            self.vinted_client.set_cookie(model.vinted_cookie or "")
-            self.vinted_client.set_refresh_token(model.vinted_refresh_token or "")
-            session.flush()
-            return settings_to_contract(model, session)
+            return settings_to_contract(self._get_settings_state(session), session)
 
     def get_blocked_brands(self) -> list[str]:
         with session_scope() as session:
@@ -1298,58 +1238,13 @@ class SearchService:
             return self._get_settings_state(session).scan_interval_seconds
 
     def update_app_settings(self, payload: SettingsUpdate) -> SettingsSnapshot:
-        # Phase 1 — read txn: resolve the effective cookie/region the health fetch will use
-        # (payload fields left as None mean "unchanged", so fall back to the stored values).
-        with session_scope() as session:
-            current = self._get_settings_state(session)
-            effective_cookie = (
-                payload.vinted_cookie if payload.vinted_cookie is not None else current.vinted_cookie
-            )
-            effective_refresh_token = (
-                payload.vinted_refresh_token
-                if payload.vinted_refresh_token is not None
-                else current.vinted_refresh_token
-            )
-
-        # Phase 2 — apply credentials to the client (in-memory) and fetch session health, no lock held.
-        # Only force a live fetch if the cookie or region changed; unrelated field updates (e.g.
-        # Telegram token) should not block on a Vinted round-trip.
-        cookie_changed = payload.vinted_cookie is not None and payload.vinted_cookie != current.vinted_cookie
-        region_changed = payload.vinted_region != current.vinted_region
-        self.vinted_client.set_cookie(effective_cookie or "")
-        self.vinted_client.set_refresh_token(effective_refresh_token or "")
-        session_health_json = None
-        if cookie_changed or region_changed:
-            try:
-                session_health_json = self._fetch_session_health_json(region=payload.vinted_region, force=True)
-            except Exception as exc:
-                _logger.warning("Settings saved without refreshed Vinted session health.", exc_info=True)
-                errors = getattr(self, "errors", None)
-                if errors is not None:
-                    errors.record(
-                        source="api",
-                        operation="refresh_vinted_session_health",
-                        summary="Vinted session health refresh failed",
-                        exception=exc,
-                        details={"region": payload.vinted_region},
-                        related_entity_type="app_settings",
-                        related_entity_id=1,
-                    )
-
-        # Phase 3 — write txn: apply all field updates and the freshly fetched health.
         with session_scope() as session:
             model = self._get_settings_state(session)
-            model.vinted_region = payload.vinted_region
-            if payload.vinted_cookie is not None:
-                model.vinted_cookie = payload.vinted_cookie
-            if payload.vinted_refresh_token is not None:
-                model.vinted_refresh_token = payload.vinted_refresh_token
             if payload.telegram_bot_token is not None:
                 model.telegram_bot_token = payload.telegram_bot_token.strip()
             if payload.telegram_chat_id is not None:
                 model.telegram_chat_id = payload.telegram_chat_id.strip()
-            _, telegram_configured, _ = integration_configuration(
-                db_cookie=model.vinted_cookie,
+            telegram_configured, _ = integration_configuration(
                 telegram_bot_token=model.telegram_bot_token,
                 telegram_chat_id=model.telegram_chat_id,
             )
@@ -1358,7 +1253,5 @@ class SearchService:
                 model.alert_threshold = _alert_threshold(payload.alert_threshold)
             if payload.scan_interval_seconds is not None:
                 model.scan_interval_seconds = max(30, min(86400, int(payload.scan_interval_seconds)))
-            if session_health_json is not None:
-                model.session_health = session_health_json
             session.flush()
             return settings_to_contract(model, session)

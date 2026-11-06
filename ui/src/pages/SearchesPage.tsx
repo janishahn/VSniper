@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 
-import { Play, RefreshCw } from 'lucide-react';
+import { Play } from 'lucide-react';
 
 import { ErrorText } from '../components/ErrorText';
 import { Empty, Loading, PageHeader } from '../components/ui';
@@ -16,7 +16,6 @@ import {
 import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { queryKeys } from '../lib/queryKeys';
-import { applySizeFilter } from '../lib/searchFilters';
 import type { SearchRecord, SearchUpdatePayload } from '../types';
 
 type BuilderState = { searchId: string; form: SearchFormState };
@@ -73,27 +72,9 @@ export function SearchesPage() {
     onSuccess: invalidateSearchRunData,
   });
 
-  const syncSizesMutation = useMutation({ mutationFn: api.syncVintedSizes });
-
-  const applySizesMutation = useMutation({
-    mutationFn: api.applyProfileSizesToAll,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.searches }),
-  });
-
   const updateBuilderForm = (form: SearchFormState) => {
     setBuilder((current) => (current ? { ...current, form } : current));
   };
-
-  const handleSyncSizes = useCallback(() => {
-    if (!builder) return;
-    syncSizesMutation.mutate(undefined, {
-      onSuccess: (result) => {
-        setBuilder((current) => (
-          current ? { ...current, form: { ...current.form, filters: applySizeFilter(current.form.filters, result.sizes) } } : current
-        ));
-      },
-    });
-  }, [builder, syncSizesMutation]);
 
   const submitBuilder = () => {
     if (!builder) return;
@@ -111,22 +92,10 @@ export function SearchesPage() {
       title="Searches"
       sub="One saved Vinted search per clothing bucket. The worker scans each enabled search on the interval set in Settings."
       actions={(
-        <>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => applySizesMutation.mutate()}
-            disabled={applySizesMutation.isPending}
-            title="Copy the sizes from your Vinted profile into every search"
-          >
-            <RefreshCw size={15} aria-hidden="true" />
-            {applySizesMutation.isPending ? 'Syncing sizes…' : 'Sync sizes'}
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => runAllMutation.mutate()} disabled={runAllMutation.isPending}>
-            <Play size={15} aria-hidden="true" />
-            {runAllMutation.isPending ? 'Running all…' : 'Run all now'}
-          </button>
-        </>
+        <button type="button" className="btn btn-primary" onClick={() => runAllMutation.mutate()} disabled={runAllMutation.isPending}>
+          <Play size={15} aria-hidden="true" />
+          {runAllMutation.isPending ? 'Running all…' : 'Run all now'}
+        </button>
       )}
     />
   );
@@ -143,10 +112,6 @@ export function SearchesPage() {
 
       <ErrorText error={bucketsQuery.error} prefix="Buckets failed to load" />
       <ErrorText error={runAllMutation.error} prefix="Run all failed" />
-      <ErrorText error={applySizesMutation.error} prefix="Size sync failed" />
-      {applySizesMutation.isSuccess ? (
-        <p className="success-text">Applied sizes {applySizesMutation.data.sizes.join(', ') || '(none found)'} to every search.</p>
-      ) : null}
 
       {searchesQuery.data.length === 0 ? (
         <Empty title="No searches yet">
@@ -193,9 +158,6 @@ export function SearchesPage() {
           onSubmit={submitBuilder}
           isPending={updateMutation.isPending}
           error={builderError}
-          onSyncSizes={handleSyncSizes}
-          isSyncingSizes={syncSizesMutation.isPending}
-          syncSizesError={syncSizesMutation.error}
         />
       ) : null}
     </div>

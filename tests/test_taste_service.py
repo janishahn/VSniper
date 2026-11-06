@@ -141,7 +141,7 @@ def test_cancel_recompute_unblocks_immediate_retry(monkeypatch, tmp_path) -> Non
 
 def _seed_recompute_prereqs(factory, *, job_id: str, taste_profile: dict, now: datetime) -> None:
     with factory() as session:
-        session.add(AppSettingsState(id=1, vinted_region="de"))
+        session.add(AppSettingsState(id=1))
         session.add(
             TasteState(
                 id=1,

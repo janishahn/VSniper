@@ -1,199 +1,115 @@
 {
-  "filter_code": "size",
-  "options": [
+ "filter_code": "size",
+ "options": [
+  {
+   "id": "WOMEN-LT",
+   "options": [
     {
-      "id": "MEN-DE",
-      "options": [
-        {
-          "id": "206",
-          "title": "XS",
-          "type": "default"
-        },
-        {
-          "id": "207",
-          "title": "S",
-          "type": "default"
-        },
-        {
-          "id": "208",
-          "title": "M",
-          "type": "default"
-        },
-        {
-          "id": "209",
-          "title": "L",
-          "type": "default"
-        },
-        {
-          "id": "210",
-          "title": "XL",
-          "type": "default"
-        },
-        {
-          "id": "211",
-          "title": "XXL",
-          "type": "default"
-        },
-        {
-          "id": "212",
-          "title": "XXXL",
-          "type": "default"
-        },
-        {
-          "id": "308",
-          "title": "4XL",
-          "type": "default"
-        },
-        {
-          "id": "309",
-          "title": "5XL",
-          "type": "default"
-        },
-        {
-          "id": "1192",
-          "title": "6XL",
-          "type": "default"
-        },
-        {
-          "id": "1193",
-          "title": "7XL",
-          "type": "default"
-        },
-        {
-          "id": "1194",
-          "title": "8XL",
-          "type": "default"
-        },
-        {
-          "id": "213",
-          "title": "Universal",
-          "type": "default"
-        }
-      ],
-      "title": "Größen Männer",
-      "type": "group"
+     "id": "1226",
+     "items_count": 61,
+     "title": "XXXS / 30 / 2",
+     "type": "default"
     },
     {
-      "id": "MEN-PANTS",
-      "options": [
-        {
-          "id": "1631",
-          "title": "W23 | DE 38",
-          "type": "default"
-        },
-        {
-          "id": "1632",
-          "title": "W24 | DE 40",
-          "type": "default"
-        },
-        {
-          "id": "1633",
-          "title": "W25 | DE 40",
-          "type": "default"
-        },
-        {
-          "id": "1634",
-          "title": "W26 | DE 42",
-          "type": "default"
-        },
-        {
-          "id": "1635",
-          "title": "W27 | DE 42",
-          "type": "default"
-        },
-        {
-          "id": "1636",
-          "title": "W28 | DE 44",
-          "type": "default"
-        },
-        {
-          "id": "1637",
-          "title": "W29 | DE 44",
-          "type": "default"
-        },
-        {
-          "id": "1638",
-          "title": "W30 | DE 46",
-          "type": "default"
-        },
-        {
-          "id": "1639",
-          "title": "W31 | DE 46",
-          "type": "default"
-        },
-        {
-          "id": "1640",
-          "title": "W32 | DE 48",
-          "type": "default"
-        },
-        {
-          "id": "1641",
-          "title": "W33 | DE 48",
-          "type": "default"
-        },
-        {
-          "id": "1642",
-          "title": "W34 | DE 50",
-          "type": "default"
-        },
-        {
-          "id": "1662",
-          "title": "W35 | DE 50",
-          "type": "default"
-        },
-        {
-          "id": "1643",
-          "title": "W36 | DE 52",
-          "type": "default"
-        },
-        {
-          "id": "1644",
-          "title": "W38 | DE 54",
-          "type": "default"
-        },
-        {
-          "id": "1645",
-          "title": "W40 | DE 56",
-          "type": "default"
-        },
-        {
-          "id": "1646",
-          "title": "W42 | DE 58",
-          "type": "default"
-        },
-        {
-          "id": "1647",
-          "title": "W44 | DE 60",
-          "type": "default"
-        },
-        {
-          "id": "1648",
-          "title": "W46 | DE 62",
-          "type": "default"
-        },
-        {
-          "id": "1649",
-          "title": "W48 | DE 64",
-          "type": "default"
-        },
-        {
-          "id": "1704",
-          "title": "66 | W50",
-          "type": "default"
-        },
-        {
-          "id": "1705",
-          "title": "68 | W52",
-          "type": "default"
-        },
-        {
-          "id": "1706",
-          "title": "70 | W54",
-          "type": "default"
-        }
-      ],
-      "title": "Hosen für Herren",
-      "type": "group"
+     "id": "102",
+     "items_count": 481,
+     "title": "XXS / 32 / 4",
+     "type": "default"
+    },
+    {
+     "id": "2",
+     "items_count": 7119,
+     "title": "XS / 34 / 6",
+     "type": "default"
+    },
+    {
+     "id": "3",
+     "items_count": 20825,
+     "title": "S / 36 / 8",
+     "type": "default"
+    },
+    {
+     "id": "4",
+     "items_count": 19809,
+     "title": "M / 38 / 10",
+     "type": "default"
+    },
+    {
+     "id": "5",
+     "items_count": 10536,
+     "title": "L / 40 / 12",
+     "type": "default"
+    },
+    {
+     "id": "6",
+     "items_count": 5127,
+     "title": "XL / 42 / 14",
+     "type": "default"
+    },
+    {
+     "id": "7",
+     "items_count": 2102,
+     "title": "XXL / 44 / 16",
+     "type": "default"
+    },
+    {
+     "id": "310",
+     "items_count": 921,
+     "title": "XXXL / 46 / 18",
+     "type": "default"
+    },
+    {
+     "id": "311",
+     "items_count": 475,
+     "title": "4XL / 48 / 20",
+     "type": "default"
+    },
+    {
+     "id": "312",
+     "items_count": 285,
+     "title": "5XL / 50 / 22",
+     "type": "default"
+    },
+    {
+     "id": "1227",
+     "items_count": 149,
+     "title": "6XL / 52 / 24",
+     "type": "default"
+    },
+    {
+     "id": "1228",
+     "items_count": 57,
+     "title": "7XL / 54 / 26",
+     "type": "default"
+    },
+    {
+     "id": "1229",
+     "items_count": 32,
+     "title": "8XL / 56 / 28",
+     "type": "default"
+    },
+    {
+     "id": "1230",
+     "items_count": 13,
+     "title": "9XL / 58 / 30",
+     "type": "default"
+    },
+    {
+     "id": "90",
+     "items_count": 3619,
+     "title": "Einheitsgröße",
+     "type": "default"
+    },
+    {
+     "id": "97",
+     "items_count": 369,
+     "title": "Sonstige",
+     "type": "default"
     }
-  ]
+   ],
+   "title": "Kleidergrößen",
+   "type": "group"
+  }
+ ],
+ "total_count_max": 99
 }

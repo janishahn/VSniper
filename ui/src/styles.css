@@ -1646,6 +1646,17 @@ details.disclosure > .disclosure-body {
   border-radius: var(--radius);
 }
 
+.size-group {
+  display: grid;
+  gap: var(--s1);
+}
+
+.size-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--s4);
+}
+
 .catalog-node {
   display: flex;
   align-items: center;

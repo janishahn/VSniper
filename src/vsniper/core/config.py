@@ -17,15 +17,6 @@ def _discover_runtime_root() -> Path:
 
 class Settings(BaseSettings):
     sqlite_path: Path = Field(default=Path("storage/sqlite/vsniper.db"), alias="SQLITE_PATH")
-    vinted_region: str = Field(default="de", alias="VINTED_REGION")
-    vinted_cookie: str = Field(default="put-your-vinted-cookie-here", alias="VINTED_COOKIE")
-    # Empty uses Playwright's own Chromium build; the image points this at Debian's chromium.
-    vinted_browser_executable: str = Field(default="", alias="VINTED_BROWSER_EXECUTABLE")
-    vinted_browser_proxy_url: str = Field(default="", alias="VINTED_BROWSER_PROXY_URL")
-    vinted_browser_profile_dir: Path = Field(
-        default=Path("storage/browser-profile"),
-        alias="VINTED_BROWSER_PROFILE_DIR",
-    )
     telegram_bot_token: str = Field(default="put-your-telegram-bot-token-here", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="put-your-telegram-chat-id-here", alias="TELEGRAM_CHAT_ID")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

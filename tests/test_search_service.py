@@ -1,10 +1,4 @@
-"""Tests for SearchService.apply_profile_sizes_to_all.
-
-The key behavior under test: a user's flat Vinted account size list mixes shoe sizes,
-trouser sizes, and shirt sizes together. apply_profile_sizes_to_all must split that list
-by bucket (via each bucket's size keywords) and write only the relevant sizes onto
-each search, instead of blasting the same full list onto every search regardless of category.
-"""
+"""Tests for SearchService search drafts."""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -20,7 +14,7 @@ from vsniper.domain.contracts import GeneratedSearchDraft, SearchFilter, TastePr
 from vsniper.services.search_service import SearchService
 
 
-def _setup(monkeypatch, tmp_path, *, grouped_sizes):
+def _setup(monkeypatch, tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'sizes.db'}", future=True)
 
     @event.listens_for(engine, "connect")
@@ -45,12 +39,12 @@ def _setup(monkeypatch, tmp_path, *, grouped_sizes):
     monkeypatch.setattr("vsniper.services.search_service.session_scope", fake_session_scope)
 
     with fake_session_scope() as session:
-        session.add(AppSettingsState(id=1, vinted_region="de"))
-        session.add(Bucket(key="schuhe", label="Schuhe", catalog_ids=[16, 2632], size_keywords=["schuhe"]))
-        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9], size_keywords=["hose"]))
-        session.add(Bucket(key="kopf", label="Kopf", catalog_ids=[88], size_keywords=["hut", "muetze"]))
-        session.add(Bucket(key="obenrum_warm", label="Obenrum Warm", catalog_ids=[12], size_keywords=["shirt", "kleidergroesse"]))
-        session.add(Bucket(key="obenrum_mittel", label="Obenrum Mittel", catalog_ids=[13], size_keywords=["shirt", "kleidergroesse"]))
+        session.add(AppSettingsState(id=1))
+        session.add(Bucket(key="schuhe", label="Schuhe", catalog_ids=[16, 2632]))
+        session.add(Bucket(key="hosen", label="Hosen", catalog_ids=[9]))
+        session.add(Bucket(key="kopf", label="Kopf", catalog_ids=[88]))
+        session.add(Bucket(key="obenrum_warm", label="Obenrum Warm", catalog_ids=[12]))
+        session.add(Bucket(key="obenrum_mittel", label="Obenrum Mittel", catalog_ids=[13]))
         session.add(Search(id="search-schuhe", name="Schuhe", clothing_item="schuhe", query="q", region="de", run_status="idle"))
         session.add(Search(id="search-hosen", name="Hosen", clothing_item="hosen", query="q", region="de", run_status="idle"))
         session.add(Search(id="search-kopf", name="Kopf", clothing_item="kopf", query="q", region="de", run_status="idle"))
@@ -58,44 +52,11 @@ def _setup(monkeypatch, tmp_path, *, grouped_sizes):
         session.add(Search(id="search-obenrum-mittel", name="Obenrum Mittel", clothing_item="obenrum_mittel", query="q", region="de", run_status="idle"))
 
     service = SearchService.__new__(SearchService)
-    service.vinted_client = type(
-        "Vinted",
-        (),
-        {"fetch_user_sizes_grouped": staticmethod(lambda *, region: grouped_sizes)},
-    )()
     return service, factory
 
 
-def _size_filter_values(factory, search_id: str) -> list[str] | None:
-    session = factory()
-    try:
-        search = session.get(Search, search_id)
-        filters = [SearchFilter.model_validate(f) for f in search.filters]
-        size_filters = [f for f in filters if f.field == "size"]
-        return size_filters[0].values if size_filters else None
-    finally:
-        session.close()
-
-
-def test_apply_profile_sizes_to_all_does_not_leak_shoe_sizes_into_tops_via_generic_size_group(monkeypatch, tmp_path) -> None:
-    grouped = [
-        {"title": "43", "group_description": "Schuhe Männer"},
-        # An ambiguous, gender-scoped size-group label that Vinted can legitimately use for a
-        # shoe size group. Its titles must not leak into obenrum_warm/obenrum_mittel.
-        {"title": "41 | DE 54", "group_description": "Größen Männer"},
-        {"title": "42 | DE 56", "group_description": "Größen Männer"},
-    ]
-    service, factory = _setup(monkeypatch, tmp_path, grouped_sizes=grouped)
-
-    service.apply_profile_sizes_to_all()
-
-    assert _size_filter_values(factory, "search-schuhe") == ["43"]
-    assert _size_filter_values(factory, "search-obenrum-warm") is None
-    assert _size_filter_values(factory, "search-obenrum-mittel") is None
-
-
 def test_apply_generated_drafts_preserves_the_user_price_ceiling(monkeypatch, tmp_path) -> None:
-    service, factory = _setup(monkeypatch, tmp_path, grouped_sizes=[])
+    service, factory = _setup(monkeypatch, tmp_path)
     existing_price = SearchFilter(field="price", label="Maximum price", values=["20"], mode="range")
     draft_price = SearchFilter(field="price", label="Maximum price", values=["80"], mode="range")
     draft_category = SearchFilter(field="category", label="Vinted category", values=["2632"], mode="include")

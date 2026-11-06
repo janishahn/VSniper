@@ -5,30 +5,21 @@ import json
 import logging
 import re
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from uuid import uuid4
 
 import httpx
 
-from vsniper.core.config import get_settings
-from vsniper.domain.contracts import CandidateFeature, ClothingItem, SearchRecord, SessionHealth
-from vsniper.integrations.vinted.browser import (
-    BrowserListingChallengeError,
-    BrowserListingUnconfiguredError,
-    BrowserListingUnavailableError,
-    VintedBrowserClient,
-)
+from vsniper.domain.contracts import CandidateFeature, ClothingItem, SearchRecord
+from vsniper.integrations.vinted.item_page import ItemPage, ItemPageError, parse_item_page
 
-
-SESSION_HEALTH_TTL = timedelta(minutes=15)
 FILTER_OPTION_CACHE_TTL = timedelta(hours=6)
-TOKEN_REFRESH_BUFFER = timedelta(minutes=5)
-# noVNC is served under /vinted-browser/ and needs its websocket path spelled out there.
-VINTED_BROWSER_VIEWER_PATH = "/vinted-browser/vnc.html?autoconnect=1&resize=scale&path=vinted-browser/websockify"
+SESSION_RENEW_BEFORE = timedelta(hours=1)
+VINTED_ACCEPT_LANGUAGE = "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"
+VINTED_BASE_URL = "https://www.vinted.de"
 VINTED_CATALOG_PER_PAGE = 96
 VINTED_CURRENCY = "EUR"
 VINTED_GATEWAY_BASE_URL = "https://api.vinted.de"
@@ -40,6 +31,18 @@ VINTED_WEB_USER_AGENT = (
 _logger = logging.getLogger(__name__)
 FilterOptionCacheKey = tuple[str, str, str, str] | tuple[str, str, str, str, str]
 _ITEM_URL_RE = re.compile(r"^/items/(?P<item_id>\d+)(?:[-/].*)?$")
+
+
+def _jwt_expiry(token: str) -> datetime | None:
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+    except ValueError:
+        return None
+    exp = payload.get("exp") if isinstance(payload, dict) else None
+    return datetime.fromtimestamp(exp, tz=UTC) if isinstance(exp, (int, float)) else None
 
 FILTER_ID_PARAM_BY_FIELD = {
     "brand": "brand_ids",
@@ -109,125 +112,11 @@ MATERIAL_ALIAS_IDS = {
 }
 
 
-class _ListingPageMetadataParser(HTMLParser):
-    """Collect the stable metadata Vinted renders in every listing page."""
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.metadata: dict[str, str] = {}
-        self.canonical_url: str | None = None
-        self.brand: str | None = None
-        self.size: str | None = None
-        self.price: str | None = None
-        self._photo_urls: dict[int, str] = {}
-        self._in_title = False
-        self._title_parts: list[str] = []
-        self._brand_depth: int | None = None
-        self._brand_parts: list[str] = []
-        self._size_depth: int | None = None
-        self._size_parts: list[str] = []
-        self._price_depth: int | None = None
-        self._price_parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {name.lower(): value for name, value in attrs if value is not None}
-        if self._brand_depth is not None:
-            self._brand_depth += 1
-        if self._size_depth is not None:
-            self._size_depth += 1
-        if self._price_depth is not None:
-            self._price_depth += 1
-
-        if tag == "meta":
-            key = attributes.get("property") or attributes.get("name")
-            content = attributes.get("content")
-            if key and content and key not in self.metadata:
-                self.metadata[key.lower()] = content
-        elif tag == "link" and attributes.get("rel", "").lower() == "canonical":
-            self.canonical_url = attributes.get("href")
-        elif tag == "title":
-            self._in_title = True
-
-        href = attributes.get("href", "")
-        if tag == "a" and self.brand is None and urlparse(href).path.startswith("/brand/"):
-            self._brand_depth = 1
-            self._brand_parts = []
-        if self.size is None and attributes.get("itemprop", "").lower() == "size":
-            self._size_depth = 1
-            self._size_parts = []
-        if self.price is None and attributes.get("data-testid") == "item-price":
-            self._price_depth = 1
-            self._price_parts = []
-
-        photo_match = re.fullmatch(r"item-photo-(\d+)--img", attributes.get("data-testid", ""))
-        photo_url = attributes.get("src")
-        if tag == "img" and photo_match and photo_url:
-            self._photo_urls.setdefault(int(photo_match.group(1)), photo_url)
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag == "title":
-            self._in_title = False
-        self._brand_depth = self._finish_capture(
-            self._brand_depth,
-            self._brand_parts,
-            lambda value: setattr(self, "brand", value),
-        )
-        self._size_depth = self._finish_capture(
-            self._size_depth,
-            self._size_parts,
-            lambda value: setattr(self, "size", value),
-        )
-        self._price_depth = self._finish_capture(
-            self._price_depth,
-            self._price_parts,
-            lambda value: setattr(self, "price", value),
-        )
-
-    def handle_data(self, data: str) -> None:
-        if self._in_title:
-            self._title_parts.append(data)
-        if self._brand_depth is not None:
-            self._brand_parts.append(data)
-        if self._size_depth is not None and not any(part.strip() for part in self._size_parts):
-            self._size_parts.append(data)
-        if self._price_depth is not None:
-            self._price_parts.append(data)
-
-    @staticmethod
-    def _finish_capture(
-        depth: int | None,
-        parts: list[str],
-        assign: Callable[[str], None],
-    ) -> int | None:
-        if depth is None:
-            return None
-        depth -= 1
-        if depth > 0:
-            return depth
-        value = " ".join(part.strip() for part in parts if part.strip()).strip()
-        if value:
-            assign(value)
-        return None
-
-    @property
-    def title(self) -> str:
-        return "".join(self._title_parts).strip()
-
-    @property
-    def image_urls(self) -> list[str]:
-        return [url for _, url in sorted(self._photo_urls.items())]
-
-
 class VintedClientError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool, status_code: int | None = None) -> None:
         super().__init__(message)
         self.retryable = retryable
         self.status_code = status_code
-
-
-class VintedConfigurationError(VintedClientError):
-    def __init__(self, message: str) -> None:
-        super().__init__(message, retryable=False)
 
 
 class VintedSessionError(VintedClientError):
@@ -244,316 +133,108 @@ class VintedListingUrlError(VintedClientError):
         super().__init__(message, retryable=False)
 
 
-class VintedBrowserActionError(VintedClientError):
-    def __init__(self, message: str, *, code: str, recovery_path: str | None = None) -> None:
-        super().__init__(message, retryable=True, status_code=503)
-        self.code = code
-        self.recovery_path = recovery_path
-
-
 class VintedClient:
+    """Talks to Vinted DE as an anonymous visitor.
+
+    A first visit to the website hands out a public-scope `access_token_web` (valid a day),
+    which the catalog and filter gateway accept. The client keeps those cookies in its own
+    jar and fetches a new set when the token is close to expiry or Vinted rejects it.
+    """
+
     def __init__(
         self,
         *,
         base_url: str | None = None,
         timeout: float = 20.0,
         client: httpx.Client | None = None,
-        browser_client: VintedBrowserClient | None = None,
-        on_tokens_refreshed: Callable[[str, str], None] | None = None,
     ) -> None:
-        self.settings = get_settings()
-        self.base_url = base_url.rstrip("/") if base_url else None
-        self.timeout = timeout
-        self._client = client
-        self._browser_client = browser_client
-        self._session_health_cache: dict[str, SessionHealth] = {}
+        self.base_url = (base_url or VINTED_BASE_URL).rstrip("/")
+        # Tests point both hosts at one mock server.
+        self.gateway_url = self.base_url if base_url else VINTED_GATEWAY_BASE_URL
+        self._http = client or httpx.Client(timeout=timeout)
+        self._http.headers["User-Agent"] = VINTED_WEB_USER_AGENT
+        self._session_lock = threading.Lock()
         self._filter_option_cache: dict[FilterOptionCacheKey, tuple[datetime, list[dict[str, Any]]]] = {}
-        self._cookie_override: str | None = None
-        self._refresh_token: str | None = None
-        self._on_tokens_refreshed = on_tokens_refreshed
-        self._generated_anon_id = str(uuid4())
-        self._last_token_refresh_error: str | None = None
-        # Parallel scan threads share one client; serialize refreshes so rotating refresh
-        # tokens are not clobbered by two simultaneous refreshes (which kills the session).
-        self._token_refresh_lock = threading.Lock()
-        # Disabled on throwaway validation probes: refreshing rotates (and upstream-invalidates)
-        # the refresh token inside the very cookie being validated, which would break it on save.
-        self._allow_token_refresh = True
 
-    def set_cookie(self, value: str) -> None:
-        new_cookie = value.strip() or None
-        if new_cookie != self._cookie_override:
-            self._generated_anon_id = str(uuid4())
-        self._cookie_override = new_cookie
-        self._session_health_cache.clear()
-        self._last_token_refresh_error = None
-        if self._cookie_override:
-            parsed = self._extract_named_token(self._cookie_override, "refresh_token_web")
-            # Always realign the refresh token with the new cookie. If the new cookie has no
-            # refresh_token_web, clear the old one so a later refresh can't persist a stale
-            # token over the fresh credentials.
-            self._refresh_token = parsed or None
+    def close(self) -> None:
+        self._http.close()
 
-    def set_refresh_token(self, value: str) -> None:
-        self._refresh_token = value.strip() or None
-        self._last_token_refresh_error = None
+    def _session_expiry(self) -> datetime | None:
+        for cookie in self._http.cookies.jar:
+            if cookie.name == "access_token_web" and cookie.value:
+                return _jwt_expiry(cookie.value)
+        return None
 
-    def sync_persisted_credentials(self, cookie: str, refresh_token: str) -> None:
-        """Re-apply DB-persisted credentials onto the long-lived client.
-
-        Runs under the token-refresh lock and skips when nothing changed, so a scan
-        thread can't clobber a refresh_token another thread just rotated (and persisted)
-        with a stale pre-rotation snapshot. The DB stays the source of truth, so even if a
-        rare interleaving slips a stale value through, the next scan re-syncs from it.
-        """
-        new_cookie = cookie.strip() or None
-        new_refresh = refresh_token.strip() or None
-        with self._token_refresh_lock:
-            if new_cookie == self._cookie_override and new_refresh == self._refresh_token:
+    def _ensure_session(self, *, renew: bool = False) -> None:
+        with self._session_lock:
+            expiry = self._session_expiry()
+            if not renew and expiry is not None and expiry > datetime.now(UTC) + SESSION_RENEW_BEFORE:
                 return
-            self.set_cookie(cookie)
-            self.set_refresh_token(refresh_token)
-
-    def validate_cookie(self, cookie: str, *, region: str | None = None) -> SessionHealth:
-        """Validate an arbitrary cookie against upstream on a fully isolated throwaway client.
-
-        Probing on a separate instance (rather than snapshot/restore of the live client)
-        guarantees the probe can never (a) mutate the shared client's cookie/refresh token while
-        a scan thread is mid-request, or (b) persist rotated tokens to the DB — the throwaway has
-        no ``on_tokens_refreshed`` callback. Token refresh is also disabled on the probe: a
-        refresh would rotate and upstream-invalidate the refresh token inside the very cookie the
-        user is about to save. The HTTP transport (``self._client``) is shared so tests and any
-        connection reuse still apply; only the mutable credential state is isolated.
-        """
-        probe = VintedClient(base_url=self.base_url, timeout=self.timeout, client=self._client)
-        probe._allow_token_refresh = False
-        probe.set_cookie(cookie)
-        return probe.get_session_health(region=region, force=True)
-
-    def _effective_cookie(self) -> str:
-        if self._cookie_override is not None:
-            return self._cookie_override
-        return self.settings.vinted_cookie
-
-    def fetch_user_sizes(self, *, region: str | None = None) -> list[str]:
-        text = self._fetch_personalization_sizes_text(region=region)
-        return self._parse_user_selected_sizes(text)
-
-    def fetch_user_sizes_grouped(self, *, region: str | None = None) -> list[dict[str, str]]:
-        """Each selected size title enriched with the Vinted size-group description it
-        belongs to (e.g. "Schuhe Männer", "Hosen für Herren"). Vinted's personalization page
-        lists a user's sizes across every category in one flat list; the group description
-        is what lets a caller apply a size only to the matching clothing item instead of the
-        same size list to every search regardless of category.
-        """
-        text = self._fetch_personalization_sizes_text(region=region)
-        group_by_size_id = self._parse_size_group_descriptions(text)
-        grouped: list[dict[str, str]] = []
-        seen: set[tuple[str, str]] = set()
-        for size_id, title in self._parse_user_selected_sizes_with_ids(text):
-            description = group_by_size_id.get(size_id)
-            if description is None:
-                continue
-            key = (title, description)
-            if key in seen:
-                continue
-            seen.add(key)
-            grouped.append({"title": title, "group_description": description})
-        return grouped
-
-    def _fetch_personalization_sizes_text(self, *, region: str | None = None) -> str:
-        # Vinted's REST API does not expose size preferences. They are only
-        # available in the Next.js RSC payload of the personalization page.
-        region = (region or self.settings.vinted_region).strip().lower()
-        self._maybe_refresh_token()
-
-        url = f"{self._base_url_for_region(region)}/member/personalization/sizes/mens"
-        headers = self._request_headers(region=region)
-        headers["Accept"] = "text/x-component"
-        headers["RSC"] = "1"
-        cookie_header = self._cookie_header_value_or_raise()
-        self._attach_cookie_headers(headers, cookie_header)
-
-        try:
-            if self._client is not None:
-                response = self._client.request("GET", url, headers=headers)
-            else:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    response = client.request("GET", url, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise VintedSearchError("Vinted request timed out.", retryable=True) from exc
-        except httpx.HTTPError as exc:
-            raise VintedSearchError(f"Vinted request failed: {exc}", retryable=True) from exc
-
-        if response.status_code in {401, 403}:
-            raise VintedSessionError(
-                "Vinted rejected the configured cookie/session.",
-                retryable=False,
-                status_code=response.status_code,
-            )
-        if not response.is_success:
-            raise VintedSearchError(
-                f"Failed to fetch size preferences: HTTP {response.status_code}",
-                retryable=False,
-                status_code=response.status_code,
-            )
-        return response.text
-
-    @staticmethod
-    def _parse_user_selected_sizes(text: str) -> list[str]:
-        sizes: list[str] = []
-        for _, title in VintedClient._parse_user_selected_sizes_with_ids(text):
-            if title not in sizes:
-                sizes.append(title)
-        return sizes
-
-    @staticmethod
-    def _parse_user_selected_sizes_with_ids(text: str) -> list[tuple[int, str]]:
-        sizes: list[tuple[int, str]] = []
-        search_key = '"userSelectedSizes":'
-        pos = 0
-        while True:
-            idx = text.find(search_key, pos)
-            if idx == -1:
-                break
-            bracket_start = text.find("[", idx + len(search_key))
-            if bracket_start == -1:
-                break
-            depth = 0
-            bracket_end = bracket_start
-            for i in range(bracket_start, len(text)):
-                if text[i] == "[":
-                    depth += 1
-                elif text[i] == "]":
-                    depth -= 1
-                    if depth == 0:
-                        bracket_end = i
-                        break
+            self._http.cookies.clear()
             try:
-                arr = json.loads(text[bracket_start : bracket_end + 1])
-            except (json.JSONDecodeError, ValueError):
-                pos = bracket_start + 1
-                continue
-            for s in arr:
-                if isinstance(s, dict):
-                    size_id = s.get("id")
-                    title = s.get("title")
-                    if isinstance(size_id, int) and title and isinstance(title, str):
-                        sizes.append((size_id, title))
-            pos = bracket_end + 1
-        return sizes
+                response = self._http.get(
+                    f"{self.base_url}/",
+                    headers={"Accept": "text/html,application/xhtml+xml", "Accept-Language": VINTED_ACCEPT_LANGUAGE},
+                    follow_redirects=True,
+                )
+            except httpx.HTTPError as exc:
+                raise VintedSearchError(f"Vinted could not be reached: {exc}", retryable=True) from exc
+            if self._session_expiry() is None:
+                raise VintedSessionError(
+                    f"Vinted did not start a visitor session (HTTP {response.status_code}).",
+                    retryable=True,
+                    status_code=response.status_code,
+                )
+            _logger.info("Vinted visitor session started")
 
-    # Matches each entry of the RSC payload's top-level `sizeGroups` listing, e.g.
-    # {"id":38,"caption_code":10,"caption":"Größe","description":"Schuhe Männer","size_ids":[...]}.
-    # `description` is the human-readable category (shoes, trousers, shirts, ...) that a
-    # selected size id belongs to; it is what we need to apply sizes per clothing item.
-    _SIZE_GROUP_RE = re.compile(
-        r'\{"id":\d+,"caption_code":\d+,"caption":"[^"]*","description":"([^"]*)","size_ids":\[([^\]]*)\]'
-    )
-
-    @classmethod
-    def _parse_size_group_descriptions(cls, text: str) -> dict[int, str]:
-        group_by_size_id: dict[int, str] = {}
-        for match in cls._SIZE_GROUP_RE.finditer(text):
-            description, size_ids_blob = match.groups()
-            for raw_id in size_ids_blob.split(","):
-                raw_id = raw_id.strip()
-                if raw_id.isdigit():
-                    group_by_size_id.setdefault(int(raw_id), description)
-        return group_by_size_id
-
-    def get_session_health(self, *, region: str | None = None, force: bool = False) -> SessionHealth:
-        region = (region or self.settings.vinted_region).strip().lower()
-        now = datetime.now(UTC)
-        cached = self._session_health_cache.get(region)
-        if not force and cached is not None and cached.last_validated_at is not None:
-            if cached.last_validated_at >= now - SESSION_HEALTH_TTL:
-                return cached
-
-        cookie_header = self._cookie_header_value()
-        if cookie_header is None:
-            health = SessionHealth(
-                region=region,
-                status="missing",
-                last_validated_at=None,
-                detail="Vinted credentials are missing from the environment. Add a valid cookie to enable live scans.",
-            )
-            self._session_health_cache[region] = health
-            return health
-
-        cookie_expiry = self._extract_cookie_expiry()
-        if cookie_expiry is not None and cookie_expiry <= now:
-            health = SessionHealth(
-                region=region,
-                status="warning",
-                last_validated_at=now,
-                detail=f"The configured Vinted cookie appears to be expired locally (exp {cookie_expiry.isoformat()}).",
-            )
-            self._session_health_cache[region] = health
-            return health
-
-        transient = False
-        try:
-            payload = self._request("GET", region=region, path="/api/v2/users/current", auth_required=True)
-        except VintedClientError as exc:
-            transient = exc.retryable
-            detail = str(exc)
-            if cookie_expiry is not None:
-                detail = f"{detail} Cookie exp={cookie_expiry.isoformat()}."
-            cookie_quality_detail = self._cookie_quality_detail(cookie_header)
-            if cookie_quality_detail:
-                detail = f"{detail} {cookie_quality_detail}"
-            health = SessionHealth(region=region, status="warning", last_validated_at=now, detail=detail)
-        else:
-            user = payload.get("user") if isinstance(payload, dict) else None
-            if not isinstance(user, dict):
-                user = payload if isinstance(payload, dict) else {}
-            username = self._first_non_empty(user.get("login"), user.get("username"), user.get("id"))
-            detail = f"Vinted session validated against upstream for region '{region}'."
-            if username:
-                detail += f" Authenticated as {username}."
-            if cookie_expiry is not None:
-                detail += f" Cookie exp={cookie_expiry.isoformat()}."
-            cookie_quality_detail = self._cookie_quality_detail(cookie_header)
-            if cookie_quality_detail:
-                detail += f" {cookie_quality_detail}"
-            health = SessionHealth(region=region, status="healthy", last_validated_at=now, detail=detail)
-
-        # Don't poison the cache for the full TTL on a transient blip (timeout / 5xx / 429):
-        # leave the previous (or no) cached value so the next scan re-validates immediately.
-        if not transient:
-            self._session_health_cache[region] = health
-        return health
-
-    def run_search(self, search: SearchRecord, *, validate_session: bool = True) -> list[dict[str, Any]]:
-        if validate_session:
-            health = self.get_session_health(region=search.region)
-            if health.status != "healthy":
-                raise VintedSessionError(health.detail, retryable=False)
-
-        payload = self._request_catalog(
-            region=search.region,
-            legacy_path="/api/v2/catalog/items",
-            gateway_path="/svc-catalogue/items",
-            params=self._build_search_params(search),
-        )
-        items = self._extract_items(payload)
+    def run_search(self, search: SearchRecord) -> list[dict[str, Any]]:
+        payload = self._request_catalog("/svc-catalogue/items", self._build_search_params(search))
         normalized: list[dict[str, Any]] = []
-        for item in items:
+        for item in self._extract_items(payload):
             try:
                 normalized.append(self._normalise_item(item, search))
             except ValueError:
                 continue
         return normalized
 
+    def fetch_item_page(self, url: str) -> ItemPage:
+        """Load one listing's full details (description, all photos, attributes)."""
+        path = self._listing_path_from_url(url)
+        if _ITEM_URL_RE.match(path) is None:
+            raise VintedListingUrlError("Vinted URL must point to a listing under /items/<id>.")
+        response = self._send(
+            "GET",
+            f"{self.base_url}{path}",
+            headers={"Accept": "text/x-component", "Accept-Language": VINTED_ACCEPT_LANGUAGE, "RSC": "1"},
+            follow_redirects=True,
+        )
+        if response.status_code == 404:
+            raise VintedListingUrlError("Vinted could not find a listing at that URL.")
+        if not response.is_success:
+            raise VintedSearchError(
+                self._non_success_detail(path=path, response=response),
+                retryable=response.status_code == 429 or response.status_code >= 500,
+                status_code=response.status_code,
+            )
+        try:
+            return parse_item_page(response.text)
+        except ItemPageError as exc:
+            raise VintedListingUrlError(str(exc)) from exc
+
     def fetch_item_by_url(self, url: str, *, clothing_item: ClothingItem, region: str = "de") -> dict[str, Any]:
         item_id = self.listing_id_from_url(url)
-        item = self._fetch_listing_page(
-            path=self._listing_path_for_client(url),
-            item_id=item_id,
-            region=region,
-        )
-
+        page = self.fetch_item_page(url)
+        item = {
+            "id": item_id,
+            "title": page.title,
+            "brand_title": page.brand,
+            "size_title": page.size,
+            "status": page.condition,
+            "price": page.price_eur,
+            "description": page.description,
+            "url": f"{self.base_url}{self._listing_path_from_url(url)}",
+            "photos": [{"url": image_url} for image_url in page.image_urls],
+        }
         search = SearchRecord(
             id=f"offer-{item_id}",
             name="Offer by URL",
@@ -565,117 +246,13 @@ class VintedClient:
         )
         return self._normalise_item(item, search)
 
-    def _fetch_listing_page(self, *, path: str, item_id: str, region: str) -> dict[str, Any]:
-        """Load an item from Vinted's current server-rendered listing page.
-
-        The old ``/api/v2/items/<id>`` endpoint now serves Vinted's HTML 404 page,
-        even for active listings. The public item page is the supported source for
-        this one-off import flow and includes Open Graph metadata before client-side
-        JavaScript executes.
-        """
-        url = f"{self._base_url_for_region(region)}{path}"
-        if self._browser_client is not None:
-            try:
-                page_text = self._browser_client.fetch_html(
-                    url,
-                    cookie_header=self._cookie_header_value() or "",
-                )
-            except BrowserListingChallengeError as exc:
-                raise VintedBrowserActionError(
-                    str(exc),
-                    code="vinted_browser_challenge",
-                    recovery_path=VINTED_BROWSER_VIEWER_PATH,
-                ) from exc
-            except BrowserListingUnconfiguredError as exc:
-                raise VintedBrowserActionError(
-                    str(exc),
-                    code="vinted_browser_unconfigured",
-                ) from exc
-            except BrowserListingUnavailableError as exc:
-                raise VintedBrowserActionError(
-                    str(exc),
-                    code="vinted_browser_unavailable",
-                ) from exc
-            return self._listing_from_page_text(page_text, url=url, item_id=item_id)
-
-        headers = self._request_headers(region=region)
-        headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-        headers["Referer"] = f"{self._base_url_for_region(region)}/catalog"
-        cookie_header = self._cookie_header_value()
-        if cookie_header is not None:
-            self._attach_cookie_headers(headers, cookie_header)
-
-        response = self._get_listing_page_response(url, headers)
-        # A stale authenticated session is redirected to Vinted's cookie-expiry
-        # page, even though item pages themselves are publicly readable. Retry
-        # without the cookie rather than making Add by URL depend on scan-session
-        # health.
-        redirect_target = response.headers.get("location", "")
-        if cookie_header is not None and (
-            response.status_code in {401, 403}
-            or "/web/api/auth/expire-cookies" in redirect_target
-        ):
-            anonymous_headers = self._request_headers(region=region)
-            anonymous_headers["Accept"] = headers["Accept"]
-            anonymous_headers["Referer"] = headers["Referer"]
-            response = self._get_listing_page_response(url, anonymous_headers)
-
-        if not response.is_success:
-            raise VintedSearchError(
-                self._non_success_detail(method="GET", path=path, response=response, cookie_header=cookie_header),
-                retryable=response.status_code >= 500,
-                status_code=response.status_code,
-            )
-
-        return self._listing_from_page_text(response.text, url=url, item_id=item_id)
-
-    @staticmethod
-    def _listing_from_page_text(page_text: str, *, url: str, item_id: str) -> dict[str, Any]:
-        parser = _ListingPageMetadataParser()
-        parser.feed(page_text)
-        parser.close()
-        title = parser.metadata.get("og:title") or parser.title
-        title = re.sub(r"\s*\|\s*Vinted\s*$", "", title, flags=re.IGNORECASE).strip()
-        if not title:
-            raise VintedListingUrlError("Vinted could not find a listing at that URL.")
-
-        canonical_url = parser.canonical_url or parser.metadata.get("og:url") or url
-        image_urls = parser.image_urls
-        if not image_urls and (image_url := parser.metadata.get("og:image")):
-            image_urls = [image_url]
-        return {
-            "id": item_id,
-            "title": title,
-            "brand_title": parser.brand,
-            "size_title": parser.size,
-            "price": parser.price,
-            "description": parser.metadata.get("og:description") or parser.metadata.get("description") or "",
-            "url": canonical_url,
-            "photos": [{"url": image_url} for image_url in image_urls],
-            "source": "listing_page_metadata",
-        }
-
-    def _get_listing_page_response(self, url: str, headers: dict[str, str]) -> httpx.Response:
-        try:
-            if self._client is not None:
-                return self._client.get(url, headers=headers)
-            else:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    return client.get(url, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise VintedSearchError("Vinted request timed out.", retryable=True) from exc
-        except httpx.HTTPError as exc:
-            raise VintedSearchError(f"Vinted request failed: {exc}", retryable=True) from exc
-
-    def search_brands(self, query: str, *, region: str = "de") -> list[dict[str, str]]:
+    def search_brands(self, query: str) -> list[dict[str, str]]:
         """Look up Vinted's own brand catalog for autocomplete, e.g. for a blocked-brands picker."""
         text = query.strip()
         if not text:
             return []
         payload = self._request(
-            "GET",
-            region=region,
-            path="/api/v2/catalog/filters/search",
+            "/svc-filters/filters/search",
             params={
                 "search_text": "",
                 "currency": VINTED_CURRENCY,
@@ -700,9 +277,34 @@ class VintedClient:
             results.append({"id": str_id, "title": title})
         return results
 
+    def size_options(self, catalog_ids: list[int]) -> list[dict[str, Any]]:
+        """Vinted's size groups for these categories: [{"group": "WOMEN-LT", "sizes": [{"id", "title"}]}]."""
+        if not catalog_ids:
+            return []
+        payload = self._request(
+            "/svc-filters/filters/facets",
+            params={
+                "filter_code": "size",
+                "attribute_ids[catalog]": ",".join(str(catalog_id) for catalog_id in catalog_ids),
+                "currency": VINTED_CURRENCY,
+            },
+        )
+        groups: list[dict[str, Any]] = []
+        for group in payload.get("options") or []:
+            if not isinstance(group, dict):
+                continue
+            sizes = [
+                {"id": int(option["id"]), "title": str(option["title"])}
+                for option in group.get("options") or []
+                if isinstance(option, dict) and str(option.get("id", "")).isdigit() and option.get("title")
+            ]
+            if sizes:
+                groups.append({"group": str(group.get("id") or ""), "sizes": sizes})
+        return groups
+
     @staticmethod
     def _item_id_from_url(url: str) -> str:
-        path = VintedClient._listing_path_from_url(url, allowed_host="vinted.de")
+        path = VintedClient._listing_path_from_url(url)
         match = _ITEM_URL_RE.match(path)
         if match is None:
             raise VintedListingUrlError("Vinted URL must point to a listing under /items/<id>.")
@@ -725,84 +327,57 @@ class VintedClient:
             raise VintedListingUrlError("Vinted URL must use the vinted.de domain.")
         return parsed.path.rstrip("/")
 
-    def _listing_path_for_client(self, url: str) -> str:
-        allowed_host = urlparse(self.base_url).hostname if self.base_url else "vinted.de"
-        return self._listing_path_from_url(url, allowed_host=allowed_host or "vinted.de")
-
     def listing_id_from_url(self, url: str) -> str:
-        path = self._listing_path_for_client(url)
+        path = self._listing_path_from_url(url)
         match = _ITEM_URL_RE.match(path)
         if match is None:
             raise VintedListingUrlError("Vinted URL must point to a listing under /items/<id>.")
         return match.group("item_id")
 
-    def _request(
-        self,
-        method: str,
-        *,
-        region: str,
-        path: str,
-        params: dict[str, Any] | None = None,
-        auth_required: bool = False,
-    ) -> dict[str, Any]:
-        if auth_required or self._cookie_is_expired():
-            self._maybe_refresh_token()
+    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Send with the visitor session, starting a new session once if Vinted rejects it."""
+        self._ensure_session()
+        for attempt in range(2):
+            try:
+                response = self._http.request(method, url, **kwargs)
+            except httpx.TimeoutException as exc:
+                raise VintedSearchError("Vinted request timed out.", retryable=True) from exc
+            except httpx.HTTPError as exc:
+                raise VintedSearchError(f"Vinted request failed: {exc}", retryable=True) from exc
+            if response.status_code not in {401, 403} or attempt == 1:
+                return response
+            self._ensure_session(renew=True)
+        raise AssertionError("unreachable")
 
-        base_url = self._base_url_for_region(region)
-        headers = self._request_headers(region=region)
-        if path.startswith(("/svc-catalogue/", "/svc-filters/")):
-            # Vinted retired the www /web/gateway proxy. Keep the website
-            # Origin/Referer while calling the German API host directly.
-            base_url = self.base_url or VINTED_GATEWAY_BASE_URL
-            headers.update({"Platform": "web", "Locale": "de-DE", "Sec-Fetch-Site": "same-site"})
-        url = f"{base_url}{path}"
-        cookie_header = self._cookie_header_value()
-        if auth_required:
-            cookie_header = self._cookie_header_value_or_raise()
-        elif self._cookie_is_expired():
-            cookie_header = None
-        if cookie_header is not None:
-            self._attach_cookie_headers(headers, cookie_header)
-
-        response: httpx.Response
-        try:
-            if self._client is not None:
-                response = self._client.request(method, url, params=params, headers=headers)
-            else:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    response = client.request(method, url, params=params, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise VintedSearchError("Vinted request timed out.", retryable=True) from exc
-        except httpx.HTTPError as exc:
-            raise VintedSearchError(f"Vinted request failed: {exc}", retryable=True) from exc
-
+    def _request(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
+        response = self._send(
+            "GET",
+            f"{self.gateway_url}{path}",
+            params=params,
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": VINTED_ACCEPT_LANGUAGE,
+                "Origin": self.base_url,
+                "Referer": f"{self.base_url}/catalog",
+                "Platform": "web",
+                "Locale": "de-DE",
+            },
+        )
         if response.status_code in {401, 403}:
-            detail = "Vinted rejected the configured cookie/session."
-            if response.status_code == 403 and self._looks_like_datadome_block(response):
-                detail += " The response looks like a DataDome challenge/block; refresh the browser session cookie."
-            if cookie_header is not None:
-                cookie_quality_detail = self._cookie_quality_detail(cookie_header)
-                if cookie_quality_detail:
-                    detail += f" {cookie_quality_detail}"
-            raise VintedSessionError(detail, retryable=False, status_code=response.status_code)
-        if response.status_code == 406:
-            detail = "Vinted returned 406 Not Acceptable."
+            detail = "Vinted rejected the visitor session."
             if self._looks_like_datadome_block(response):
-                detail += " The response looks like a DataDome challenge/block; refresh the browser session cookie and ensure the datadome cookie is fresh."
-            else:
-                detail += " This usually means the request is missing required browser fingerprint headers. Refresh the Vinted cookie from an authenticated browser tab."
-            raise VintedSessionError(detail, retryable=False, status_code=response.status_code)
+                detail += " The response looks like a DataDome block of this IP address."
+            raise VintedSessionError(detail, retryable=True, status_code=response.status_code)
         if response.status_code == 429:
             raise VintedSearchError("Vinted rate-limited the request.", retryable=True, status_code=response.status_code)
         if response.status_code >= 500:
             raise VintedSearchError("Vinted returned an upstream server error.", retryable=True, status_code=response.status_code)
         if not response.is_success:
             raise VintedSearchError(
-                self._non_success_detail(method=method, path=path, response=response, cookie_header=cookie_header),
+                self._non_success_detail(path=path, response=response),
                 retryable=False,
                 status_code=response.status_code,
             )
-
         try:
             payload = response.json()
         except ValueError as exc:
@@ -811,30 +386,20 @@ class VintedClient:
             raise VintedSearchError("Vinted returned an unexpected response payload.", retryable=False)
         return payload
 
-    def _non_success_detail(
-        self,
-        *,
-        method: str,
-        path: str,
-        response: httpx.Response,
-        cookie_header: str | None,
-    ) -> str:
-        body_preview = response.text[:500].strip()
-        if not body_preview:
-            body_preview = "<empty body>"
-        detail = (
+    @staticmethod
+    def _non_success_detail(*, path: str, response: httpx.Response) -> str:
+        body_preview = response.text[:500].strip() or "<empty body>"
+        return (
             f"Vinted request failed with status {response.status_code} {response.reason_phrase} "
-            f"while calling {method} {path}. Response body: {body_preview}"
+            f"while calling GET {path}. Response body: {body_preview}"
         )
-        if self._last_token_refresh_error:
-            detail += f" Last token refresh failed: {self._last_token_refresh_error}."
-        if cookie_header is not None:
-            cookie_quality_detail = self._cookie_quality_detail(cookie_header)
-            if cookie_quality_detail:
-                detail += f" {cookie_quality_detail}"
-        if response.status_code in {406, 418, 419} or self._last_token_refresh_error:
-            detail += " Refresh the Vinted credentials in Settings with a fresh full Cookie header from an authenticated browser tab."
-        return detail
+
+    @staticmethod
+    def _looks_like_datadome_block(response: httpx.Response) -> bool:
+        if response.headers.get("x-dd-b") or response.headers.get("x-datadome"):
+            return True
+        set_cookie = response.headers.get("set-cookie", "").lower()
+        return "datadome" in set_cookie or "datadome" in response.text[:500].lower()
 
     def _build_search_params(self, search: SearchRecord) -> dict[str, Any]:
         # A real browser starts a fresh search/browse session per search action; minting these
@@ -937,20 +502,13 @@ class VintedClient:
                 current_params=current_params,
             )
             resolved.extend(option_ids)
-
-        if field == "size" and values and not resolved:
-            raise VintedSearchError(
-                f"None of the requested sizes could be resolved for search {search.id}; "
-                "check its size and category filters. Refusing to search without a size filter.",
-                retryable=False,
-            )
         return list(dict.fromkeys(resolved))
 
     @staticmethod
     def _static_filter_ids(*, field: str, normalized_value: str) -> list[str]:
         field = VintedClient._normalise_filter_field(field)
-        if field in {"category", "catalog"}:
-            # Bucket categories store Vinted catalog ids directly.
+        if field in {"category", "catalog", "size"}:
+            # Bucket categories and sizes are stored as Vinted ids.
             return [normalized_value] if normalized_value.isdigit() else []
         if field in {"colour", "color"}:
             return COLOR_ALIAS_IDS.get(normalized_value, [])
@@ -1033,12 +591,7 @@ class VintedClient:
         cached = self._filter_option_cache.get(cache_key)
         if cached is not None and cached[0] >= now - FILTER_OPTION_CACHE_TTL:
             return cached[1]
-        payload = self._request_catalog(
-            region=search.region,
-            legacy_path="/api/v2/catalog/filters/search",
-            gateway_path="/svc-filters/filters/search",
-            params=params,
-        )
+        payload = self._request_catalog("/svc-filters/filters/search", params)
         options = payload.get("options")
         result = [item for item in options if isinstance(item, dict)] if isinstance(options, list) else []
         self._filter_option_cache[cache_key] = (now, result)
@@ -1058,10 +611,6 @@ class VintedClient:
 
         params = self._filter_context_params(search=search, current_params=current_params)
         params["filter_code"] = "color" if field == "colour" else "status" if field == "condition" else field
-        if field == "size":
-            # Size IDs belong to a category, not the listings matching today's
-            # query or price range. Result constraints can hide valid sizes.
-            params = {key: value for key, value in params.items() if key in {"catalog_ids", "currency", "filter_code"}}
         cache_key = (
             search.region,
             params["filter_code"],
@@ -1073,36 +622,19 @@ class VintedClient:
         if cached is not None and cached[0] >= now - FILTER_OPTION_CACHE_TTL:
             return cached[1]
 
-        payload = self._request_catalog(
-            region=search.region,
-            legacy_path="/api/v2/catalog/filters/facets",
-            gateway_path="/svc-filters/filters/facets",
-            params=params,
-        )
+        payload = self._request_catalog("/svc-filters/filters/facets", params)
         options = payload.get("options")
         result = [item for item in options if isinstance(item, dict)] if isinstance(options, list) else []
         self._filter_option_cache[cache_key] = (now, result)
         return result
 
-    def _request_catalog(
-        self, *, region: str, legacy_path: str, gateway_path: str, params: dict[str, Any],
-    ) -> dict[str, Any]:
-        try:
-            return self._request(
-                "GET", region=region, path=legacy_path, params=params,
-            )
-        except VintedSearchError as exc:
-            if exc.status_code != 404:
-                raise
-
+    def _request_catalog(self, gateway_path: str, params: dict[str, Any]) -> dict[str, Any]:
         # The gateway uses nested attributes for both catalog and filter IDs.
         gateway_params = dict(params)
         for key in set(FILTER_ID_PARAM_BY_FIELD.values()):
             if key in gateway_params:
                 gateway_params[f"attribute_ids[{key.removesuffix('_ids')}]"] = gateway_params.pop(key)
-        return self._request(
-            "GET", region=region, path=gateway_path, params=gateway_params,
-        )
+        return self._request(gateway_path, params=gateway_params)
 
     @staticmethod
     def _filter_context_params(*, search: SearchRecord, current_params: dict[str, Any]) -> dict[str, Any]:
@@ -1149,8 +681,8 @@ class VintedClient:
             second_line = self._first_non_empty(self._nested_value(item, "item_box", "second_line")) or ""
             size_part, separator, _ = second_line.partition(" · ")
             size = size_part if separator else "unknown"
-        url = self._extract_url(item, region=search.region, external_item_id=str(external_item_id))
-        image_urls = self._extract_image_urls(item, region=search.region)
+        url = self._extract_url(item, external_item_id=str(external_item_id))
+        image_urls = self._extract_image_urls(item)
         created_at = self._extract_created_at(item)
         features = self._extract_features(title=title, brand=brand, description=description)
 
@@ -1203,15 +735,15 @@ class VintedClient:
                 return value
         return 0.0
 
-    def _extract_url(self, item: dict[str, Any], *, region: str, external_item_id: str) -> str:
+    def _extract_url(self, item: dict[str, Any], *, external_item_id: str) -> str:
         url = self._first_non_empty(item.get("url"), item.get("item_url"), item.get("path"), item.get("item_path"))
         if url:
             if url.startswith("http://") or url.startswith("https://"):
                 return url
-            return urljoin(f"{self._base_url_for_region(region)}/", url.lstrip("/"))
-        return f"{self._base_url_for_region(region)}/items/{external_item_id}"
+            return urljoin(f"{self.base_url}/", url.lstrip("/"))
+        return f"{self.base_url}/items/{external_item_id}"
 
-    def _extract_image_urls(self, item: dict[str, Any], *, region: str) -> list[str]:
+    def _extract_image_urls(self, item: dict[str, Any]) -> list[str]:
         photos = item.get("photos") or item.get("images") or []
         urls: list[str] = []
         if isinstance(photos, list):
@@ -1228,7 +760,7 @@ class VintedClient:
                 if not url:
                     continue
                 if not url.startswith("http://") and not url.startswith("https://"):
-                    url = urljoin(f"{self._base_url_for_region(region)}/", url.lstrip("/"))
+                    url = urljoin(f"{self.base_url}/", url.lstrip("/"))
                 urls.append(url)
         return list(dict.fromkeys(urls))
 
@@ -1320,249 +852,6 @@ class VintedClient:
                 )
             )
         return features
-
-    def _base_url_for_region(self, region: str) -> str:
-        if self.base_url is not None:
-            return self.base_url
-        suffix = region.strip().lower() or self.settings.vinted_region
-        if suffix in {"com", "us"}:
-            suffix = "com"
-        return f"https://www.vinted.{suffix}"
-
-    def _request_headers(self, *, region: str) -> dict[str, str]:
-        base_url = self._base_url_for_region(region)
-        return {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Origin": base_url,
-            "Referer": f"{base_url}/catalog",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": VINTED_WEB_USER_AGENT,
-            "X-Content-Only": "default",
-            "X-Next-App": "marketplace-web",
-        }
-
-    def _attach_cookie_headers(self, headers: dict[str, str], cookie_header: str) -> None:
-        headers["Cookie"] = cookie_header
-        csrf_token = self._extract_csrf_token(cookie_header)
-        if csrf_token and csrf_token.lower() != "false":
-            headers["X-CSRF-Token"] = csrf_token
-        headers["X-Anon-Id"] = self._extract_anon_id(cookie_header) or self._generated_anon_id
-
-    @staticmethod
-    def _extract_csrf_token(cookie: str) -> str | None:
-        for name in ("csrf_token", "csrf-token", "csrf", "x-csrf-token", "XSRF-TOKEN"):
-            token = VintedClient._extract_named_token(cookie, name)
-            if token:
-                return token
-        return None
-
-    @staticmethod
-    def _extract_anon_id(cookie: str) -> str | None:
-        for name in ("anon_id", "anon_id_web", "vinted_anon_id"):
-            token = VintedClient._extract_named_token(cookie, name)
-            if token:
-                return token
-        return None
-
-    @staticmethod
-    def _looks_like_datadome_block(response: httpx.Response) -> bool:
-        if response.headers.get("x-dd-b") or response.headers.get("x-datadome"):
-            return True
-        set_cookie = response.headers.get("set-cookie", "").lower()
-        body_preview = response.text[:500].lower()
-        return "datadome" in set_cookie or "datadome" in body_preview
-
-    @classmethod
-    def _cookie_quality_detail(cls, cookie: str) -> str:
-        missing: list[str] = []
-        if not cls._extract_named_token(cookie, "access_token_web"):
-            missing.append("access_token_web")
-        if not cls._extract_named_token(cookie, "refresh_token_web"):
-            missing.append("refresh_token_web")
-        if not cls._extract_named_token(cookie, "datadome"):
-            missing.append("datadome")
-        if not missing:
-            return ""
-        return (
-            "Configured Vinted cookie may be partial; missing required browser cookie pieces: "
-            f"{', '.join(missing)}. Copy a fresh full Cookie header from an authenticated Vinted browser tab."
-        )
-
-    def _cookie_header_value_or_raise(self) -> str:
-        cookie = self._cookie_header_value()
-        if cookie is None:
-            raise VintedConfigurationError("Vinted cookie is missing. Add VINTED_COOKIE to the environment.")
-        return cookie
-
-    def _cookie_header_value(self) -> str | None:
-        cookie = self._effective_cookie().strip()
-        if not cookie or cookie == "put-your-vinted-cookie-here":
-            return None
-        if "=" not in cookie:
-            cookie = f"access_token_web={cookie}"
-        return self._ensure_browser_cookie_tokens(cookie)
-
-    def _ensure_browser_cookie_tokens(self, cookie: str) -> str:
-        parts = [p.strip() for p in cookie.split(";") if p.strip()]
-        if not self._extract_anon_id(cookie):
-            parts.append(f"anon_id={self._generated_anon_id}")
-        return "; ".join(parts)
-
-    def _maybe_refresh_token(self) -> None:
-        if not self._allow_token_refresh:
-            return
-        if not self._refresh_token:
-            return
-
-        if not self._access_token_needs_refresh():
-            return
-
-        with self._token_refresh_lock:
-            # Re-check under the lock: a thread that waited here may have been blocked by another
-            # thread that already refreshed (and rotated the token), in which case we must not
-            # issue a second refresh with a now-stale refresh_token.
-            if not self._refresh_token or not self._access_token_needs_refresh():
-                return
-            self._refresh_token_locked()
-
-    def _access_token_needs_refresh(self) -> bool:
-        access_token = self._extract_cookie_token()
-        if access_token:
-            expiry = self._decode_jwt_expiry(access_token)
-            if expiry and expiry > datetime.now(UTC) + TOKEN_REFRESH_BUFFER:
-                return False
-        return True
-
-    def _refresh_token_locked(self) -> None:
-        try:
-            response = httpx.post(
-                f"{self._base_url_for_region(self.settings.vinted_region)}/oauth/token",
-                json={
-                    "grant_type": "refresh_token",
-                    "refresh_token": self._refresh_token,
-                    "client_id": "web",
-                },
-                headers={
-                        "User-Agent": VINTED_WEB_USER_AGENT,
-                        "Accept": "application/json, text/plain, */*",
-                        "Content-Type": "application/json",
-                },
-                timeout=self.timeout,
-            )
-        except httpx.HTTPError as exc:
-            self._last_token_refresh_error = f"request failed: {exc}"
-            _logger.warning("Token refresh request failed: %s", exc)
-            return
-
-        if not response.is_success:
-            self._last_token_refresh_error = f"status {response.status_code} {response.reason_phrase}: {response.text[:200]}"
-            _logger.warning("Token refresh failed with status %d: %s", response.status_code, response.text[:200])
-            return
-
-        try:
-            data = response.json()
-        except ValueError:
-            self._last_token_refresh_error = "non-JSON response"
-            _logger.warning("Token refresh returned non-JSON response")
-            return
-
-        new_access = data.get("access_token")
-        new_refresh = data.get("refresh_token")
-        if not new_access:
-            self._last_token_refresh_error = "response missing access_token"
-            _logger.warning("Token refresh response missing access_token")
-            return
-
-        self._update_access_token(new_access)
-        self._last_token_refresh_error = None
-        if new_refresh:
-            self._refresh_token = new_refresh
-        if self._on_tokens_refreshed:
-            self._on_tokens_refreshed(self._effective_cookie(), self._refresh_token or "")
-        self._session_health_cache.clear()
-        _logger.info("Vinted access token refreshed successfully")
-
-    def _update_access_token(self, new_token: str) -> None:
-        cookie = self._effective_cookie().strip()
-        if not cookie or cookie == "put-your-vinted-cookie-here":
-            self._cookie_override = f"access_token_web={new_token}"
-            return
-
-        if "=" not in cookie:
-            self._cookie_override = new_token
-            return
-
-        parts = [p.strip() for p in cookie.split(";") if p.strip()]
-        found = False
-        for i, part in enumerate(parts):
-            name, _, value = part.partition("=")
-            if name.strip() == "access_token_web":
-                parts[i] = f"access_token_web={new_token}"
-                found = True
-                break
-
-        if not found:
-            parts.insert(0, f"access_token_web={new_token}")
-
-        self._cookie_override = "; ".join(parts)
-
-    @staticmethod
-    def _extract_named_token(cookie: str, name: str) -> str | None:
-        for part in cookie.split(";"):
-            n, _, value = part.strip().partition("=")
-            if n.strip() == name and value:
-                return value
-        return None
-
-    @staticmethod
-    def _decode_jwt_expiry(token: str) -> datetime | None:
-        parts = token.split(".")
-        if len(parts) < 2:
-            return None
-        payload_segment = parts[1]
-        padding = "=" * (-len(payload_segment) % 4)
-        try:
-            decoded = base64.urlsafe_b64decode(f"{payload_segment}{padding}")
-            payload = json.loads(decoded.decode("utf-8"))
-        except (ValueError, json.JSONDecodeError):
-            return None
-        exp = payload.get("exp")
-        if not isinstance(exp, (int, float)):
-            return None
-        return datetime.fromtimestamp(exp, tz=UTC)
-
-    def get_refresh_token_expiry(self) -> datetime | None:
-        token = (self._refresh_token or "").strip()
-        if not token:
-            token = self._extract_named_token(self._effective_cookie(), "refresh_token_web") or ""
-        if not token:
-            return None
-        return self._decode_jwt_expiry(token)
-
-    def _cookie_is_expired(self) -> bool:
-        cookie_expiry = self._extract_cookie_expiry()
-        return cookie_expiry is not None and cookie_expiry <= datetime.now(UTC)
-
-    def _extract_cookie_expiry(self) -> datetime | None:
-        token = self._extract_cookie_token()
-        if token is None:
-            return None
-        return self._decode_jwt_expiry(token)
-
-    def _extract_cookie_token(self) -> str | None:
-        raw_cookie = self._effective_cookie().strip()
-        if not raw_cookie or raw_cookie == "put-your-vinted-cookie-here":
-            return None
-        if "=" not in raw_cookie and raw_cookie.count(".") >= 2:
-            return raw_cookie
-        for part in raw_cookie.split(";"):
-            name, _, value = part.strip().partition("=")
-            if name == "access_token_web" and value:
-                return value
-        return None
 
     @staticmethod
     def _nested_value(payload: Any, *keys: Any) -> Any:

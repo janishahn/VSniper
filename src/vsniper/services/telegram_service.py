@@ -470,67 +470,6 @@ class TelegramService:
             ),
         )
 
-    _REFRESH_TOKEN_WARNING_THRESHOLD = timedelta(hours=24)
-
-    def check_refresh_token_expiry(self) -> None:
-        refresh_token_expiry = self.vinted_client.get_refresh_token_expiry()
-        if refresh_token_expiry is None:
-            return
-
-        now = datetime.now(UTC)
-        if refresh_token_expiry - now > self._REFRESH_TOKEN_WARNING_THRESHOLD:
-            return
-
-        expiry_key = refresh_token_expiry.isoformat()
-        # Phase 1 — read txn: load config, apply the bot token (in-memory), and decide whether to send.
-        with session_scope() as session:
-            model = session.get(AppSettingsState, 1)
-            config = _telegram_config_from_model(model)
-            self._apply_bot_token(config)
-            if model is not None and model.refresh_token_expiry_warning_sent_for == expiry_key:
-                return
-            if not is_value_configured(config.bot_token, placeholder="put-your-telegram-bot-token-here"):
-                return
-            if not is_value_configured(config.chat_id, placeholder="put-your-telegram-chat-id-here"):
-                return
-
-        if refresh_token_expiry <= now:
-            text = (
-                f"⚠️ Der Vinted-Refresh-Token ist am "
-                f"{refresh_token_expiry.astimezone(_LOCAL_TZ).strftime('%d.%m.%Y um %H:%M Uhr')} abgelaufen. "
-                f"Bitte erneuern, damit die Anmeldung bei Vinted weiter automatisch verlängert wird."
-            )
-        else:
-            text = (
-                f"⚠️ Der Vinted-Refresh-Token läuft bald ab "
-                f"({refresh_token_expiry.astimezone(_LOCAL_TZ).strftime('%d.%m.%Y um %H:%M Uhr')}). "
-                f"Bitte vorher erneuern, damit die Anmeldung bei Vinted weiter automatisch verlängert wird."
-            )
-
-        # Phase 2 — send the warning with no DB lock held.
-        try:
-            self.telegram_client.send_message(chat_id=config.chat_id, text=text)
-        except Exception as exc:
-            logger.warning("Failed to send refresh token expiry warning to Telegram", exc_info=True)
-            errors = getattr(self, "errors", None)
-            if errors is not None:
-                errors.record(
-                    source="telegram",
-                    operation="send_refresh_token_expiry_warning",
-                    summary="Telegram refresh-token warning failed",
-                    exception=exc,
-                    details={"refresh_token_expiry": refresh_token_expiry},
-                    related_entity_type="app_settings",
-                    related_entity_id=1,
-                )
-            return
-
-        # Phase 3 — write txn: record the send (idempotent against a concurrent send for the same key).
-        with session_scope() as session:
-            model = session.get(AppSettingsState, 1)
-            if model is not None and model.refresh_token_expiry_warning_sent_for != expiry_key:
-                model.refresh_token_expiry_warning_sent_for = expiry_key
-
     def _acknowledge_callback(self, callback_query_id: str, text: str) -> None:
         if not callback_query_id.strip():
             return

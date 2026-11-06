@@ -905,7 +905,6 @@ class OpenAITasteClient:
         disliked_examples: list[LabeledExample],
         previous_profile: TasteProfile | None,
         buckets: list[BucketRecord],
-        default_region: str | None = None,
         on_usage: UsageCallback | None = None,
     ) -> TasteProfile:
         if not buckets:
@@ -913,7 +912,7 @@ class OpenAITasteClient:
         buckets_by_key = {bucket.key: bucket for bucket in buckets}
         model_name = self.settings.openai_vision_model
         effort = LEARN_REASONING_EFFORT
-        region = default_region or self.settings.vinted_region
+        region = "de"
 
         def _serialise_examples(examples: list[LabeledExample]) -> list[dict[str, Any]]:
             return [

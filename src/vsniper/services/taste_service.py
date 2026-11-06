@@ -1155,7 +1155,6 @@ class TasteService:
                 for sample in samples
                 if sample.note.strip()
             )
-            default_region = db_settings.vinted_region
             observation_cache = TasteObservationCacheStats(
                 total_image_inputs=len(image_inputs),
                 cached_observations=len(image_inputs) - len(missing_inputs),
@@ -1182,7 +1181,6 @@ class TasteService:
             disliked_examples=disliked_examples,
             previous_profile=previous_profile,
             buckets=buckets,
-            default_region=default_region,
             on_usage=_track,
         )
         logger.info(

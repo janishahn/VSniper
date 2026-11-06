@@ -19,26 +19,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     API_HOST=127.0.0.1 \
     API_PORT=8000 \
-    VNC_PORT=6080 \
-    DISPLAY=:99 \
     SQLITE_PATH=/data/sqlite/vsniper.db \
     UPLOAD_DIR=/data/uploads \
     CACHE_DIR=/data/cache \
-    FEEDBACK_ASSET_DIR=/data/feedback-assets \
-    VINTED_BROWSER_PROFILE_DIR=/data/browser-profile \
-    VINTED_BROWSER_EXECUTABLE=/usr/bin/chromium
+    FEEDBACK_ASSET_DIR=/data/feedback-assets
 
-# Chromium for Add-by-URL imports, on a virtual display that noVNC exposes so a
-# browser challenge can be solved by hand.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        chromium \
-        fonts-liberation \
-        novnc \
-        websockify \
-        x11vnc \
-        xvfb \
-    && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
 
 WORKDIR /app

@@ -6,7 +6,6 @@ import { Download, Pause, Play, Upload } from 'lucide-react';
 import { api } from '../lib/api';
 import { useBuckets } from '../lib/clothingItems';
 import { formatBerlinDateTime } from '../lib/datetime';
-import { decodeJwtExpiry, decodeRefreshTokenExpiry, formatCookieExpiry } from '../lib/jwt';
 import { queryKeys } from '../lib/queryKeys';
 import { ErrorText } from '../components/ErrorText';
 import { ScoreDistributionChart } from '../components/ScoreDistributionChart';
@@ -367,14 +366,6 @@ function RunsSection() {
   );
 }
 
-function expiryTone(expiry: Date | null, now: Date): Tone {
-  if (!expiry) return 'neutral';
-  if (expiry <= now) return 'bad';
-  return expiry.getTime() - now.getTime() < 3 * 24 * 3600 * 1000 ? 'warn' : 'ok';
-}
-
-const sessionTone = { healthy: 'ok', warning: 'warn', missing: 'bad' } as const;
-
 export function DashboardPage() {
   const statsQuery = useQuery({ queryKey: queryKeys.stats, queryFn: api.getDashboardStats, refetchInterval: 30_000 });
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
@@ -398,11 +389,6 @@ export function DashboardPage() {
   const settings = settingsQuery.data;
   const ops = opsQuery.data;
 
-  const cookieExpiry = decodeJwtExpiry(settings.vinted_cookie);
-  const refreshExpiry =
-    decodeRefreshTokenExpiry(settings.vinted_cookie) ||
-    decodeRefreshTokenExpiry(settings.vinted_refresh_token ? `refresh_token_web=${settings.vinted_refresh_token}` : '');
-  const now = new Date();
 
   // Recompute is "due" when training data changed and no run is currently in flight.
   const dirty = tasteQuery.data?.dirty_counts;
@@ -441,14 +427,6 @@ export function DashboardPage() {
 
       <div className="health" aria-label="Connections">
         <div className="health-item">
-          <StatusDot tone={sessionTone[settings.session_health.status]}>Vinted.{settings.vinted_region}</StatusDot>
-          <p>{settings.session_health.detail || (settings.vinted_configured ? 'Cookie saved' : 'No cookie saved')}</p>
-          <p>
-            Access {cookieExpiry ? <span className={`tone-${expiryTone(cookieExpiry, now)}`}>{formatCookieExpiry(cookieExpiry).toLowerCase()}</span> : 'unknown'}
-            {' · '}refresh {refreshExpiry ? <span className={`tone-${expiryTone(refreshExpiry, now)}`}>{formatCookieExpiry(refreshExpiry).toLowerCase()}</span> : 'unknown'}
-          </p>
-        </div>
-        <div className="health-item">
           <StatusDot tone={settings.telegram_configured ? 'ok' : 'bad'}>Telegram</StatusDot>
           <p>{settings.telegram_configured ? 'Bot token and chat set' : 'Bot token or chat ID missing'}</p>
         </div>
@@ -464,7 +442,7 @@ export function DashboardPage() {
               : opsQuery.isError ? 'Status unavailable' : 'No heartbeat recorded'}
           </p>
         </div>
-        {(settings.session_health.status !== 'healthy' || !settings.telegram_configured) ? (
+        {!settings.telegram_configured ? (
           <p className="small" style={{ gridColumn: '1 / -1' }}>
             <Link to="/settings">Fix connections in Settings</Link>
           </p>

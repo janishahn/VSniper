@@ -15,6 +15,8 @@ from vsniper.domain.contracts import (
     BucketCreate,
     BucketDeleteResult,
     BucketRecord,
+    BucketSize,
+    BucketSizeGroup,
     BucketUpdate,
     BucketWrite,
     SearchFilter,
@@ -22,6 +24,7 @@ from vsniper.domain.contracts import (
 )
 from vsniper.integrations.vinted.catalog import catalog_by_id, load_catalog, refresh_catalog
 from vsniper.integrations.vinted.categories import ensure_category_filter
+from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services.search_defaults import canonical_search_values
 
 _logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ def bucket_to_record(model: Bucket, catalog: dict[int, VintedCatalogNode]) -> Bu
             BucketCategory(id=catalog_id, path=catalog[catalog_id].path if catalog_id in catalog else "")
             for catalog_id in model.catalog_ids
         ],
-        size_keywords=list(model.size_keywords),
+        sizes=[BucketSize.model_validate(size) for size in model.sizes],
         position=model.position,
         archived=model.archived,
     )
@@ -85,8 +88,9 @@ def require_active_bucket(session: Session, key: str) -> BucketRecord:
 
 
 class BucketService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, vinted_client: VintedClient) -> None:
         self.settings = settings
+        self.vinted_client = vinted_client
 
     def _cache_dir(self):
         return self.settings.resolve_path(self.settings.cache_dir)
@@ -104,6 +108,9 @@ class BucketService:
         _logger.info("Vinted women's catalog refreshed nodes=%d", len(nodes))
         return nodes
 
+    def size_options(self, catalog_ids: list[int]) -> list[BucketSizeGroup]:
+        return [BucketSizeGroup.model_validate(group) for group in self.vinted_client.size_options(catalog_ids)]
+
     def _validated_fields(self, payload: BucketWrite) -> dict:
         catalog = catalog_by_id(self._cache_dir())
         catalog_ids = list(dict.fromkeys(payload.catalog_ids))
@@ -114,7 +121,7 @@ class BucketService:
             "label": payload.label.strip(),
             "description": payload.description.strip(),
             "catalog_ids": catalog_ids,
-            "size_keywords": [keyword.strip() for keyword in payload.size_keywords if keyword.strip()],
+            "sizes": [size.model_dump() for size in {size.id: size for size in payload.sizes}.values()],
         }
 
     def create(self, payload: BucketCreate) -> BucketRecord:

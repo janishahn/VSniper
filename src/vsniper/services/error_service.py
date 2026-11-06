@@ -64,10 +64,7 @@ class ErrorService:
     def _secret_values(self, session: Session) -> list[str]:
         row = self._settings_row(session)
         values = [
-            row.vinted_cookie,
-            row.vinted_refresh_token,
             row.telegram_bot_token,
-            self.settings.vinted_cookie,
             self.settings.telegram_bot_token,
             self.settings.openai_api_key,
         ]

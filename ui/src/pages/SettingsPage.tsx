@@ -3,21 +3,16 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../lib/api';
 import type { SettingsSavePayload } from '../lib/api';
-import { formatBerlinDateTime } from '../lib/datetime';
 import { queryKeys } from '../lib/queryKeys';
-import { decodeJwtExpiry, decodeRefreshTokenExpiry, extractRefreshToken, formatCookieExpiry } from '../lib/jwt';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import { RefreshCw, Send } from 'lucide-react';
 
 import { DecimalInput } from '../components/DecimalInput';
 import { ErrorText } from '../components/ErrorText';
-import { Loading, PageHeader, StatusDot } from '../components/ui';
+import { Loading, PageHeader } from '../components/ui';
 
 type SettingsFormState = SettingsSavePayload;
 
-// noVNC view of the server-side Vinted browser (see README: served under /vinted-browser/).
-const VINTED_BROWSER_PATH = '/vinted-browser/vnc.html?autoconnect=1&resize=scale&path=vinted-browser/websockify';
-const sessionTone = { healthy: 'ok', warning: 'warn', missing: 'bad' } as const;
 
 function parsePositiveNumber(value: string, fallback: number): number {
   const parsed = Number(value);
@@ -33,9 +28,6 @@ export function SettingsPage() {
   const previewRequested = useRef(false);
 
   const [form, setForm] = useState<SettingsFormState>({
-    vinted_region: 'de',
-    vinted_cookie: '',
-    vinted_refresh_token: '',
     telegram_bot_token: '',
     telegram_chat_id: '',
     alert_threshold: 9,
@@ -56,9 +48,6 @@ export function SettingsPage() {
   useEffect(() => {
     if (!settingsQuery.data || formDirty.current) return;
     setForm({
-      vinted_region: 'de',
-      vinted_cookie: settingsQuery.data.vinted_cookie,
-      vinted_refresh_token: settingsQuery.data.vinted_refresh_token,
       telegram_bot_token: settingsQuery.data.telegram_bot_token,
       telegram_chat_id: settingsQuery.data.telegram_chat_id,
       alert_threshold: settingsQuery.data.alert_threshold,
@@ -96,60 +85,6 @@ export function SettingsPage() {
     },
   });
 
-  const [cookieValidation, setCookieValidation] = useState<{
-    status: 'idle' | 'validating' | 'healthy' | 'warning' | 'missing';
-    detail: string;
-  }>({ status: 'idle', detail: '' });
-  const validateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cookieExpiry = decodeJwtExpiry(form.vinted_cookie);
-  const cookieExpiryText = formatCookieExpiry(cookieExpiry);
-  const refreshTokenExpiry = decodeRefreshTokenExpiry(form.vinted_cookie) || decodeRefreshTokenExpiry(form.vinted_refresh_token ? `refresh_token_web=${form.vinted_refresh_token}` : '');
-  const refreshTokenExpiryText = formatCookieExpiry(refreshTokenExpiry);
-
-  useEffect(() => {
-    if (validateTimeoutRef.current) {
-      clearTimeout(validateTimeoutRef.current);
-    }
-
-    if (!form.vinted_cookie || form.vinted_cookie.trim() === '' || form.vinted_cookie === 'put-your-vinted-cookie-here') {
-      setCookieValidation({ status: 'idle', detail: '' });
-      return;
-    }
-
-    // Skip live validation when the cookie hasn't changed from the saved value — the
-    // settings query hydrating the form on every visit would otherwise fire a network call.
-    if (form.vinted_cookie === settingsQuery.data?.vinted_cookie) {
-      setCookieValidation({ status: 'idle', detail: '' });
-      return;
-    }
-
-    setCookieValidation({ status: 'validating', detail: 'Validating...' });
-
-    validateTimeoutRef.current = setTimeout(async () => {
-      try {
-        const result = await api.validateCookie(form.vinted_cookie);
-        setCookieValidation({ status: result.status, detail: result.detail });
-      } catch (err) {
-        setCookieValidation({ status: 'warning', detail: err instanceof Error ? err.message : 'Validation failed' });
-      }
-    }, 600);
-
-    return () => {
-      if (validateTimeoutRef.current) {
-        clearTimeout(validateTimeoutRef.current);
-      }
-    };
-  }, [form.vinted_cookie]);
-
-  const validationTone = {
-    idle: undefined,
-    validating: undefined,
-    healthy: 'ok',
-    warning: 'warn',
-    missing: 'bad',
-  }[cookieValidation.status];
-
   const header = (
     <PageHeader
       title="Settings"
@@ -164,8 +99,6 @@ export function SettingsPage() {
     return <div className="page">{header}<ErrorText error={settingsQuery.error ?? 'Could not load settings.'} /></div>;
   }
 
-  const settings = settingsQuery.data;
-  const now = new Date();
 
   const set = <K extends keyof SettingsFormState>(key: K, value: SettingsFormState[K]) => {
     setFormDirty(true);
@@ -187,63 +120,6 @@ export function SettingsPage() {
       {header}
 
       <div>
-        <section className="settings-block" aria-labelledby="vinted-title">
-          <div>
-            <h2 id="vinted-title">Vinted session</h2>
-            <p className="section-sub">
-              Paste the full cookie from a logged-in vinted.de tab. The refresh token in it keeps the session alive.
-            </p>
-          </div>
-          <div className="settings-body">
-            <div className="row">
-              <StatusDot tone={sessionTone[settings.session_health.status]}>
-                {settings.session_health.status === 'healthy' ? 'Connected' : settings.session_health.status === 'warning' ? 'Needs attention' : 'Not connected'}
-              </StatusDot>
-              <span className="hint">
-                {settings.session_health.detail}
-                {settings.session_health.last_validated_at
-                  ? ` · checked ${formatBerlinDateTime(settings.session_health.last_validated_at)}`
-                  : ''}
-              </span>
-            </div>
-            <label className="field">
-              Cookie
-              <input
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                value={form.vinted_cookie}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  const refreshToken = extractRefreshToken(value);
-                  set('vinted_cookie', value);
-                  if (refreshToken) {
-                    set('vinted_refresh_token', refreshToken);
-                  }
-                }}
-                placeholder="Paste your Vinted cookie"
-              />
-            </label>
-            <div className="token-status" aria-live="polite">
-              {cookieExpiryText ? (
-                <span className={cookieExpiry && cookieExpiry <= now ? 'tone-bad' : 'muted'}>Access token: {cookieExpiryText}</span>
-              ) : null}
-              {refreshTokenExpiryText ? (
-                <span className={refreshTokenExpiry && refreshTokenExpiry <= now ? 'tone-bad' : 'tone-ok'}>Refresh token: {refreshTokenExpiryText}</span>
-              ) : null}
-              {cookieValidation.status !== 'idle' ? (
-                <span className={validationTone ? `tone-${validationTone}` : 'muted'}>
-                  {cookieValidation.status === 'validating' ? 'Checking cookie with Vinted…' : `${cookieValidation.status}: ${cookieValidation.detail}`}
-                </span>
-              ) : null}
-            </div>
-            <p className="hint">
-              Vinted asking for verification? Solve it in the{' '}
-              <a href={VINTED_BROWSER_PATH} target="_blank" rel="noreferrer">server's Vinted browser</a>, then save again.
-            </p>
-          </div>
-        </section>
-
         <section className="settings-block" aria-labelledby="scan-title">
           <div>
             <h2 id="scan-title">Scanning and alerts</h2>

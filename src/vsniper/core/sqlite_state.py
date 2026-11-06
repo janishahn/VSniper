@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 from time import perf_counter
 
 import httpx
-
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from vsniper.core.config import get_settings
@@ -24,9 +23,8 @@ from vsniper.domain.contracts import (
 from vsniper.integrations.openai.client import OpenAITasteClient
 from vsniper.integrations.telegram.client import TelegramClient
 from vsniper.integrations.telegram.service import TelegramFormatter
-from vsniper.integrations.vinted.browser import VintedBrowserClient
 from vsniper.integrations.vinted.client import VintedClient
-from vsniper.services._mapping import build_session_health, integration_configuration
+from vsniper.services._mapping import integration_configuration
 from vsniper.services.candidate_service import CandidateService
 from vsniper.services.error_service import ErrorService
 from vsniper.services.bucket_service import BucketService, bucket_records
@@ -40,31 +38,17 @@ _state_lock = threading.Lock()
 _state_instance: AppState | None = None
 
 
-def _extract_refresh_token_from_cookie(cookie: str) -> str:
-    for part in cookie.split(";"):
-        name, _, value = part.strip().partition("=")
-        if name.strip() == "refresh_token_web" and value:
-            return value
-    return ""
-
-
 def _default_settings(now: datetime) -> SettingsSnapshot:
     runtime = get_settings()
-    vinted_configured, telegram_configured, ai_configured = integration_configuration()
-    refresh_token = _extract_refresh_token_from_cookie(runtime.vinted_cookie)
+    telegram_configured, ai_configured = integration_configuration()
     return SettingsSnapshot(
-        vinted_region=runtime.vinted_region,
-        vinted_cookie=runtime.vinted_cookie,
-        vinted_refresh_token=refresh_token,
         telegram_bot_token=runtime.telegram_bot_token,
         telegram_chat_id=runtime.telegram_chat_id,
-        vinted_configured=vinted_configured,
         telegram_configured=telegram_configured,
         ai_configured=ai_configured,
         vision_model=runtime.openai_vision_model,
         decision_model=runtime.openai_decision_model,
         alert_threshold=95,
-        session_health=build_session_health(region=runtime.vinted_region),
     )
 
 
@@ -81,19 +65,8 @@ class AppState:
         self.settings = get_settings()
         logger.info("AppState settings loaded")
 
-        self._vinted_http_client = httpx.Client(
-            timeout=20,
-            follow_redirects=True,
-            headers={"User-Agent": "vsniper/0.1 (+https://local.vsniper)"},
-        )
         self._telegram_http_client = httpx.Client(timeout=10)
-
-        self.vinted_browser_client = VintedBrowserClient(self.settings)
-        self.vinted_client = VintedClient(
-            client=self._vinted_http_client,
-            browser_client=self.vinted_browser_client,
-            on_tokens_refreshed=self._persist_refreshed_tokens,
-        )
+        self.vinted_client = VintedClient()
         self.taste_client = OpenAITasteClient(self.settings, on_usage=self._record_ai_usage)
         self.telegram_client = TelegramClient(client=self._telegram_http_client)
         self.telegram_formatter = TelegramFormatter()
@@ -104,15 +77,8 @@ class AppState:
         self._seed_if_empty()
         logger.info("AppState defaults seeded")
 
-        with session_scope() as session:
-            row = session.get(AppSettingsState, 1)
-            if row is not None:
-                self.vinted_client.set_cookie(row.vinted_cookie or "")
-                self.vinted_client.set_refresh_token(row.vinted_refresh_token or "")
-        logger.info("AppState persisted settings loaded")
-
         self.errors = ErrorService(self.settings, self.telegram_client)
-        self.buckets = BucketService(self.settings)
+        self.buckets = BucketService(self.settings, self.vinted_client)
         self.taste = TasteService(self.settings, self.taste_client, self.vinted_client, self.errors)
         self.preferences = self.taste
         self.candidates = CandidateService(self.settings, self.taste, self.taste_client, self.errors)
@@ -157,16 +123,12 @@ class AppState:
                 sqlite_insert(AppSettingsState)
                 .values(
                     id=1,
-                    vinted_region=settings.vinted_region,
-                    vinted_cookie=settings.vinted_cookie or "",
-                    vinted_refresh_token=settings.vinted_refresh_token or "",
                     telegram_bot_token=settings.telegram_bot_token or "",
                     telegram_chat_id=settings.telegram_chat_id or "",
                     telegram_configured=settings.telegram_configured,
                     error_telegram_notifications_enabled=False,
                     alert_threshold=settings.alert_threshold,
                     scan_interval_seconds=settings.scan_interval_seconds,
-                    session_health=settings.session_health.model_dump(mode="json"),
                 )
                 .on_conflict_do_nothing()
             )
@@ -183,13 +145,6 @@ class AppState:
                     .on_conflict_do_nothing()
                 )
         logger.info("AppState seed_if_empty finished")
-
-    def _persist_refreshed_tokens(self, cookie: str, refresh_token: str) -> None:
-        with session_scope() as session:
-            row = session.get(AppSettingsState, 1)
-            if row is not None:
-                row.vinted_cookie = cookie
-                row.vinted_refresh_token = refresh_token
 
     def _record_ai_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0
@@ -210,9 +165,8 @@ class AppState:
         return self.telegram.build_test_message(self.candidates.page(limit=1).items)
 
     def close(self) -> None:
-        self.vinted_browser_client.close()
         self.taste_client.close()
-        self._vinted_http_client.close()
+        self.vinted_client.close()
         self._telegram_http_client.close()
 
 

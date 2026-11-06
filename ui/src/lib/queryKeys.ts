@@ -11,6 +11,7 @@ export const queryKeys = {
   searches: ['searches'] as const,
   buckets: ['buckets'] as const,
   vintedCatalog: ['vinted-catalog'] as const,
+  vintedSizes: (catalogIds: number[]) => ['vinted-sizes', ...catalogIds] as const,
   taste: ['taste'] as const,
   judgmentPrompt: (clothingItem: string) => ['judgment-prompt', clothingItem] as const,
   candidates: ['candidates'] as const,

@@ -7,7 +7,6 @@ import { Modal } from '../ui';
 import { useBuckets } from '../../lib/clothingItems';
 import { formatBerlinDateTime } from '../../lib/datetime';
 import {
-  applySizeFilter,
   formatFilter,
   isCategoryFilter,
   isGuidedFilter,
@@ -237,18 +236,11 @@ function GuidedFilterEditor({
   form,
   bucket,
   onChange,
-  onSyncSizes,
-  isSyncingSizes,
-  syncSizesError,
 }: {
   form: SearchFormState;
   bucket?: BucketRecord;
   onChange: (form: SearchFormState) => void;
-  onSyncSizes: () => void;
-  isSyncingSizes: boolean;
-  syncSizesError?: unknown;
 }) {
-  const sizes = valuesFor(form.filters, isSizeFilter);
   const prefer = valuesFor(form.filters, isPreferKeywordFilter);
   const avoid = valuesFor(form.filters, isAvoidKeywordFilter);
   const priceCeiling = priceCeilingFor(form.filters);
@@ -259,19 +251,9 @@ function GuidedFilterEditor({
 
       <div className="builder-block builder-cols">
         <div className="stack">
-          <div className="row-between">
-            <h3>Sizes</h3>
-            <button type="button" className="btn btn-sm" onClick={onSyncSizes} disabled={isSyncingSizes}>
-              {isSyncingSizes ? 'Syncing…' : 'Sync from Vinted profile'}
-            </button>
-          </div>
-          <ChipEditor
-            values={sizes}
-            label="Sizes"
-            placeholder="M, L, 42…"
-            onChange={(values) => onChange({ ...form, filters: applySizeFilter(form.filters, values) })}
-          />
-          <ErrorText error={syncSizesError} prefix="Size sync failed" />
+          <h3>Sizes</h3>
+          <p className="small">{bucket?.sizes.length ? bucket.sizes.map((size) => size.title).join(', ') : 'All sizes'}</p>
+          <p className="hint">Set on the bucket.</p>
         </div>
 
         <div className="stack">
@@ -422,9 +404,6 @@ export function SearchBuilderModal({
   onSubmit,
   isPending,
   error,
-  onSyncSizes,
-  isSyncingSizes,
-  syncSizesError,
 }: {
   form: SearchFormState;
   bucket?: BucketRecord;
@@ -433,9 +412,6 @@ export function SearchBuilderModal({
   onSubmit: () => void;
   isPending: boolean;
   error: string | null;
-  onSyncSizes: () => void;
-  isSyncingSizes: boolean;
-  syncSizesError?: unknown;
 }) {
   const issues = validationIssues(form);
   const advancedFilters = useMemo(() => form.filters.filter((filter) => !isGuidedFilter(filter)), [form.filters]);
@@ -490,9 +466,6 @@ export function SearchBuilderModal({
         form={form}
         bucket={bucket}
         onChange={onChange}
-        onSyncSizes={onSyncSizes}
-        isSyncingSizes={isSyncingSizes}
-        syncSizesError={syncSizesError}
       />
 
       <AdvancedFilterEditor filters={advancedFilters} onChange={setAdvancedFilters} />
@@ -538,12 +511,13 @@ export function SearchCard({
   };
 }) {
   const { buckets } = useBuckets();
-  const bucketCategories = buckets.find((bucket) => bucket.key === search.clothing_item)?.categories ?? [];
+  const searchBucket = buckets.find((bucket) => bucket.key === search.clothing_item);
+  const bucketCategories = searchBucket?.categories ?? [];
   const categoryValues = valuesFor(search.filters, isCategoryFilter).map((value) => {
     const category = bucketCategories.find((item) => String(item.id) === value);
     return category ? categoryTitle(category.path, category.id) : value;
   });
-  const sizeValues = valuesFor(search.filters, isSizeFilter);
+  const sizeValues = searchBucket?.sizes.map((size) => size.title) ?? [];
   const preferValues = valuesFor(search.filters, isPreferKeywordFilter);
   const avoidValues = valuesFor(search.filters, isAvoidKeywordFilter);
   const priceCeiling = priceCeilingFor(search.filters);

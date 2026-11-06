@@ -236,10 +236,6 @@ function AddOfferModal({
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const recoveryPath = error instanceof ApiError
-    && error.code === 'vinted_browser_challenge'
-    ? error.recoveryPath
-    : undefined;
 
   const submit = async () => {
     if (!url.trim() || submitting) return;
@@ -311,12 +307,6 @@ function AddOfferModal({
       </label>
 
       <ErrorText error={error} prefix="Add listing failed" />
-      {recoveryPath ? (
-        <div className="notice notice-warn">
-          <span>Vinted wants a verification. Solve it in the server's browser, then add the listing again.</span>
-          <a className="btn btn-sm" href={recoveryPath} target="_blank" rel="noopener noreferrer">Open Vinted browser</a>
-        </div>
-      ) : null}
     </Modal>
   );
 }

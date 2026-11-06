@@ -49,12 +49,9 @@ const titles: Record<string, string> = Object.fromEntries(
   groups.flatMap((group) => group.links.map((link) => [link.to, link.label])),
 );
 
-const sessionTone = { healthy: 'ok', warning: 'warn', missing: 'bad' } as const;
-
 export function AppLayout() {
   const location = useLocation();
   const settingsQuery = useQuery({ queryKey: queryKeys.settings, queryFn: api.getSettings });
-  const session = settingsQuery.data?.session_health;
 
   useEffect(() => {
     const title = titles[location.pathname];
@@ -86,11 +83,8 @@ export function AppLayout() {
             </div>
           ))}
         </nav>
-        {session ? (
+        {settingsQuery.data ? (
           <div className="sidebar-foot">
-            <StatusDot tone={sessionTone[session.status]}>
-              Vinted {session.status === 'healthy' ? 'connected' : session.status}
-            </StatusDot>
             <StatusDot tone={settingsQuery.data?.telegram_configured ? 'ok' : 'bad'}>
               Telegram {settingsQuery.data?.telegram_configured ? 'connected' : 'missing'}
             </StatusDot>

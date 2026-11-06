@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(() => {
   const proxyTarget = 'http://127.0.0.1:8000';
-  const browserProxyTarget = 'http://127.0.0.1:6080';
 
   return {
     plugins: [react()],
@@ -30,12 +29,6 @@ export default defineConfig(() => {
         '/healthz': {
           target: proxyTarget,
           changeOrigin: true,
-        },
-        '/vinted-browser': {
-          target: browserProxyTarget,
-          changeOrigin: true,
-          ws: true,
-          rewrite: (path) => path.replace(/^\/vinted-browser/, '') || '/',
         },
       },
     },

@@ -36,11 +36,13 @@ from vsniper.domain.contracts import (
 from vsniper.domain.scoring.service import (
     build_failed_judgment_trace,
     build_judgment_trace,
+    build_screened_out_trace,
 )
 from vsniper.integrations.openai.client import (
     CandidateImageInput,
     OpenAIIntegrationError,
     OpenAITasteClient,
+    ScreenItem,
     UsageCallback,
 )
 from vsniper.integrations.openai.pricing import compute_cost
@@ -107,6 +109,21 @@ def _filter_blocked_brands(raw_candidates: list[dict], blocked_brands: list[str]
 JUDGE_CONCURRENCY = 8
 # Photos per listing sent to the decision model.
 MAX_LISTING_IMAGES = 2
+# New listings whose search card scores below this are not judged in full. In a replay of 188
+# listings, every one the full judge scored 60 or higher screened at 0.67 or above.
+SCREEN_PASS_PROBABILITY = 0.5
+
+
+def _search_card_photo_url(raw: dict) -> str | None:
+    """The cover at search-card size (about 310 px), which costs fewer tokens than the full photo."""
+    listing = raw.get("raw_listing")
+    photo = listing.get("photo") if isinstance(listing, dict) else None
+    if isinstance(photo, dict):
+        for thumbnail in sorted(photo.get("thumbnails") or [], key=lambda t: t.get("width") or 0):
+            if (thumbnail.get("width") or 0) >= 300 and thumbnail.get("url"):
+                return thumbnail["url"]
+    urls = raw.get("image_urls") or []
+    return urls[0] if urls else None
 
 
 _logger = logging.getLogger(__name__)
@@ -554,11 +571,35 @@ class SearchService:
         if selected and cancel_check is not None and cancel_check():
             selected = []
 
+        # Screening first spares the item page and the full judgment for clear misses.
+        screen_probabilities: dict[str, float] = {}
+        to_judge = selected
         if selected:
-            self._add_item_page_details([raw for _, raw in selected], search_record=search_record)
+            screen_probabilities = self._screen_listings(
+                selected,
+                taste_profile=taste_profile,
+                liked_anchors=liked_anchors,
+                disliked_anchors=disliked_anchors,
+                manual_note=manual_note,
+                on_usage=on_usage,
+            )
+            screened_out = {cid for cid, probability in screen_probabilities.items() if probability < SCREEN_PASS_PROBABILITY}
+            for cid in screened_out:
+                traces[cid] = build_screened_out_trace(
+                    probability=screen_probabilities[cid],
+                    taste_profile=taste_profile,
+                    model=self.settings.openai_decision_model,
+                    alert_threshold=search_record.effective_alert_threshold,
+                )
+                stages[cid] = "vlm_judged"
+            _persist(list(screened_out))
+            to_judge = [(cid, raw) for cid, raw in selected if cid not in screened_out]
+
+        if to_judge:
+            self._add_item_page_details([raw for _, raw in to_judge], search_record=search_record)
             _evict_stale_cache(self.settings.resolve_path(self.settings.cache_dir) / "candidate-images")
             download_failed_ids: list[str] = []
-            with ThreadPoolExecutor(max_workers=min(len(selected), 8)) as pool:
+            with ThreadPoolExecutor(max_workers=min(len(to_judge), 8)) as pool:
                 futures_in_order = [
                     (
                         pool.submit(
@@ -569,7 +610,7 @@ class SearchService:
                         cid,
                         raw,
                     )
-                    for cid, raw in selected
+                    for cid, raw in to_judge
                 ]
                 for future, candidate_id, raw in futures_in_order:
                     try:
@@ -618,13 +659,62 @@ class SearchService:
                     for item in group
                 ]
                 for item, judge_future in zip(group, futures, strict=True):
-                    traces[item.candidate_id], stages[item.candidate_id] = judge_future.result()
+                    trace, stages[item.candidate_id] = judge_future.result()
+                    if item.candidate_id in screen_probabilities:
+                        trace.raw_response = {"screen_probability": round(screen_probabilities[item.candidate_id], 3)}
+                    traces[item.candidate_id] = trace
             _persist([item.candidate_id for item in group])
         if new_judged_ids is not None:
             new_judged_ids.update(
                 cid for cid, _ in selected if stages.get(cid) == "vlm_judged"
             )
         return traces, stages, persisted_alert_count, persisted_queued_deliveries
+
+    def _screen_listings(
+        self,
+        selected: list[tuple[str, dict]],
+        *,
+        taste_profile: TasteProfile,
+        liked_anchors: list[LabeledExample],
+        disliked_anchors: list[LabeledExample],
+        manual_note: str,
+        on_usage: UsageCallback | None,
+    ) -> dict[str, float]:
+        """P(match) from each listing's search card. A listing missing from the result, because
+        its cover or its screening call failed, is judged in full."""
+        items: list[ScreenItem] = []
+        with ThreadPoolExecutor(max_workers=min(len(selected), 8)) as pool:
+            futures = [
+                (cid, raw, pool.submit(self._download_one_image, image_url=url))
+                for cid, raw in selected
+                if (url := _search_card_photo_url(raw))
+            ]
+            for cid, raw, future in futures:
+                try:
+                    image = future.result(timeout=30)
+                except (httpx.HTTPError, FutureTimeoutError):
+                    image = None
+                if image is not None:
+                    items.append(
+                        ScreenItem(
+                            candidate_id=cid,
+                            title=str(raw.get("title") or ""),
+                            brand=str(raw.get("brand") or ""),
+                            size=str(raw.get("size") or ""),
+                            image_bytes=image[0],
+                            mime_type=image[1],
+                        )
+                    )
+        if not items:
+            return {}
+        return self.taste_client.screen_candidates(
+            taste_profile=taste_profile,
+            items=items,
+            liked_anchors=liked_anchors,
+            disliked_anchors=disliked_anchors,
+            manual_note=manual_note or None,
+            on_usage=on_usage,
+        )
 
     def _add_item_page_details(self, raws: list[dict], *, search_record: SearchRecord) -> None:
         """Add each listing's description, photos and attributes from its item page.

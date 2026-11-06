@@ -539,7 +539,7 @@ class CandidateService:
         cutoff_7d = now - timedelta(days=7)
         cutoff_30d = now - timedelta(days=30)
 
-        _JUDGE_OPS = ["judge_decision", "explain_judgment"]
+        _JUDGE_OPS = ["screen_listings", "judge_decision", "explain_judgment"]
         _LEARNING_OPS = ["describe_images", "describe_candidate", "build_taste_profile"]
 
         with session_scope() as session:

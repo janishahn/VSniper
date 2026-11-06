@@ -121,6 +121,35 @@ def test_decision_asks_only_the_alert_question_by_default() -> None:
     assert (judgment.score, judgment.labels) == (30, [])
 
 
+def test_screening_splits_failed_batches_and_leaves_out_listings_that_fail_alone() -> None:
+    from vsniper.integrations.openai.client import ScreenItem
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        questions = json.loads(request.content)["questions"]
+        titles = [question["instructions"][0]["text"] for question in questions]
+        if len(questions) > 2 or any("broken" in title for title in titles):
+            return httpx.Response(400, json={"error": {"message": "too big"}})
+        assert questions[0]["instructions"][1]["type"] == "input_image"
+        return httpx.Response(
+            200,
+            json={"answers": [{"type": "predicate", "name": q["name"], "probability": 0.7} for q in questions]},
+        )
+
+    items = [
+        ScreenItem(candidate_id=f"c{index}", title="broken" if index == 3 else f"Listing {index}", image_bytes=_jpeg_bytes("red"))
+        for index in range(5)
+    ]
+    probabilities = _decision_client(handler).screen_candidates(
+        taste_profile=TasteProfile(summary="", taste_prompt="likes bold"),
+        items=items,
+        liked_anchors=[],
+        disliked_anchors=[],
+        manual_note=None,
+    )
+
+    assert probabilities == {"c0": 0.7, "c1": 0.7, "c2": 0.7, "c4": 0.7}
+
+
 def test_decision_without_an_alert_answer_is_an_integration_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"answers": [{"type": "refusal", "name": "alert"}]})

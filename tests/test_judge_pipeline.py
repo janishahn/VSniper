@@ -111,6 +111,8 @@ def _make_service() -> SearchService:
     service.preferences = MagicMock()
     service.preferences.latest_labeled_anchors.return_value = ([], [])
     service.telegram = MagicMock()
+    # Screening is covered by its own test; elsewhere every listing passes on to the full judge.
+    service._screen_listings = lambda *args, **kwargs: {}
     return service
 
 
@@ -221,6 +223,28 @@ def test_item_pages_stop_at_the_first_rate_limit() -> None:
 
     assert service.vinted_client.fetch_item_page.call_count == 1
     assert service.errors.record.call_args.kwargs["summary"] == "Item details missing for 3 of 3 listings"
+
+
+def test_screened_out_listings_skip_the_item_page_and_full_judgment() -> None:
+    service = _make_service()
+    service._screen_listings = lambda *args, **kwargs: {"search-001:miss": 0.2, "search-001:pass": 0.8}
+    jpeg = _jpeg()
+
+    def _download(*, candidate_id: str, image_urls: list[str]) -> CandidateImageInput:
+        return CandidateImageInput(candidate_id=candidate_id, image_bytes=jpeg)
+
+    service.taste_client.judge_candidate.return_value = _judgment(60)
+    with patch.object(service, "_download_candidate_image", side_effect=_download):
+        traces, stages = _call_judge(service, [_raw("miss"), _raw("pass"), _raw("unscreened")], _search(), TasteProfile(summary="", taste_prompt=""))
+
+    judged = {call.kwargs["candidate"].candidate_id for call in service.taste_client.judge_candidate.call_args_list}
+    assert judged == {"search-001:pass", "search-001:unscreened"}
+    assert [call.args[0] for call in service.vinted_client.fetch_item_page.call_args_list] == [
+        "https://vinted.de/pass",
+        "https://vinted.de/unscreened",
+    ]
+    assert (traces["search-001:miss"].score_10, traces["search-001:miss"].decision, stages["search-001:miss"]) == (20, "discard", "vlm_judged")
+    assert traces["search-001:pass"].raw_response == {"screen_probability": 0.8}
 
 
 def test_already_judged_candidate_is_reused_not_rejudged(memo_db) -> None:

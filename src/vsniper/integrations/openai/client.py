@@ -276,6 +276,17 @@ class CandidateImageInput(BaseModel):
     description: str = ""
 
 
+class ScreenItem(BaseModel):
+    """A listing as its search-result card shows it: no description, one cover photo."""
+
+    candidate_id: str
+    title: str
+    brand: str = ""
+    size: str = ""
+    image_bytes: bytes
+    mime_type: str = "image/jpeg"
+
+
 class _ObservationItem(BaseModel):
     image: str
     garment_type: str = ""
@@ -443,6 +454,14 @@ EXPLANATION_SCHEMA: dict[str, Any] = {
     "required": ["explanation"],
     "properties": {"explanation": {"type": "string"}},
 }
+
+# Larger batches of image questions failed with 503 "Decision inference is unavailable" in tests.
+SCREEN_BATCH_SIZE = 8
+SCREEN_QUESTION = (
+    "Screening one listing from its search-result card (no description yet). Title: {title}. Brand: {brand}. "
+    "Size: {size}. The attached photo is its cover. Could this listing be a match worth a closer look? "
+    "True unless it clearly does not fit the person's taste."
+)
 
 ALERT_QUESTION = (
     "Would this person want an alert for this listing? True only for a confident match with their taste: "
@@ -1252,6 +1271,73 @@ class OpenAITasteClient:
             labels=labels,
             concerns=concerns,
         )
+
+    def screen_candidates(
+        self,
+        *,
+        taste_profile: TasteProfile,
+        items: list[ScreenItem],
+        liked_anchors: list[LabeledExample],
+        disliked_anchors: list[LabeledExample],
+        manual_note: str | None,
+        on_usage: UsageCallback | None = None,
+    ) -> dict[str, float]:
+        """Ask, per listing, whether its search card could be a match; returns P(match) by candidate id.
+
+        The taste context is shared and cached; each listing is one question carrying its cover.
+        A batch the API fails is split in half; a listing that still fails alone is left out,
+        so the caller judges it in full."""
+        model_name = self.settings.openai_decision_model
+        context = _taste_context(
+            taste_profile=taste_profile,
+            liked_anchors=liked_anchors,
+            disliked_anchors=disliked_anchors,
+            manual_note=manual_note,
+        )
+        probabilities: dict[str, float] = {}
+
+        def screen(batch: list[ScreenItem]) -> None:
+            questions = [
+                {
+                    "type": "predicate",
+                    "name": f"item_{index}",
+                    "instructions": [
+                        {"type": "input_text", "text": SCREEN_QUESTION.format(title=item.title, brand=item.brand, size=item.size)},
+                        {"type": "input_image", "image_url": _image_data_url(item.image_bytes, item.mime_type)},
+                    ],
+                }
+                for index, item in enumerate(batch)
+            ]
+            payload = {
+                "model": model_name,
+                "input": [
+                    {
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": context, "prompt_cache_breakpoint": {"mode": "explicit"}}],
+                    }
+                ],
+                "questions": questions,
+                "prompt_cache_options": {"mode": "explicit"},
+            }
+            try:
+                response = self._post("decisions", payload, label="screen")
+            except OpenAIIntegrationError as exc:
+                if len(batch) == 1:
+                    logger.warning("screening failed for candidate %s: %s", batch[0].candidate_id, exc)
+                    return
+                half = len(batch) // 2
+                screen(batch[:half])
+                screen(batch[half:])
+                return
+            self._emit_usage("screen_listings", model_name, response, on_usage=on_usage)
+            for answer in response.get("answers") or []:
+                name = str(answer.get("name") or "")
+                if answer.get("type") == "predicate" and name.startswith("item_"):
+                    probabilities[batch[int(name.removeprefix("item_"))].candidate_id] = float(answer.get("probability") or 0.0)
+
+        for start in range(0, len(items), SCREEN_BATCH_SIZE):
+            screen(items[start : start + SCREEN_BATCH_SIZE])
+        return probabilities
 
     def explain_judgment(
         self,

@@ -50,6 +50,30 @@ def build_judgment_trace(
     )
 
 
+def build_screened_out_trace(
+    *,
+    probability: float,
+    taste_profile: TasteProfile,
+    model: str,
+    alert_threshold: int | None = None,
+) -> ScoreTrace:
+    """A listing whose search card already missed; it is stored like a judgment so later scans
+    reuse it instead of screening it again."""
+    trace = build_judgment_trace(
+        judgment=CandidateJudgment(
+            score=max(1, min(100, round(probability * 100))),
+            explanation="Screened out from its search card (title and cover photo).",
+            labels=[],
+            concerns=[],
+        ),
+        taste_profile=taste_profile,
+        model=model,
+        alert_threshold=alert_threshold,
+    )
+    trace.raw_response = {"screen_probability": round(probability, 3)}
+    return trace
+
+
 def build_failed_judgment_trace(
     *,
     title: str,

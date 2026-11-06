@@ -60,7 +60,8 @@ class CandidateService:
         safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in candidate_id)
         return cache_dir / f"{safe_name}.jpg"
 
-    def _load_candidate_image_bytes(self, candidate_model: Candidate) -> tuple[bytes, str] | None:
+    def load_cover_image(self, candidate_model: Candidate) -> tuple[bytes, str] | None:
+        """The listing's first photo, from the image cache or Vinted. Network only; call it outside a transaction."""
         cache_path = self._candidate_image_cache_path(candidate_model.id)
         if cache_path.exists():
             return cache_path.read_bytes(), "image/jpeg"
@@ -100,7 +101,7 @@ class CandidateService:
         needs_observation = not candidate_model.ai_observation
         if not needs_observation and feedback is None:
             return None, None
-        image = self._load_candidate_image_bytes(candidate_model)
+        image = self.load_cover_image(candidate_model)
         if image is None:
             return None, None
         image_bytes, mime_type = image

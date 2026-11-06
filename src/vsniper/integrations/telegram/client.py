@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -57,6 +58,35 @@ class TelegramClient:
             payload["reply_markup"] = reply_markup
 
         return self._post_method("sendMessage", payload=payload)
+
+    def send_photo(
+        self,
+        *,
+        chat_id: str,
+        photo: bytes,
+        caption: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Uploads the photo, so Telegram never has to fetch it from Vinted itself."""
+        self._require_bot_token()
+        data: dict[str, str] = {"chat_id": chat_id, "caption": caption}
+        if reply_markup is not None:
+            data["reply_markup"] = json.dumps(reply_markup)
+        return self._request_method("sendPhoto", data=data, files={"photo": ("cover.jpg", photo, "image/jpeg")})
+
+    def edit_message_caption(
+        self,
+        *,
+        chat_id: str | int,
+        message_id: int,
+        caption: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._require_bot_token()
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "caption": caption}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        return self._post_method("editMessageCaption", payload=payload)
 
     def answer_callback_query(self, *, callback_query_id: str, text: str | None = None) -> dict[str, Any]:
         if not self.bot_token or self.bot_token == "put-your-telegram-bot-token-here":
@@ -125,15 +155,18 @@ class TelegramClient:
         payload: dict[str, Any] | None = None,
         method: str = "POST",
         timeout: float | None = None,
+        data: dict[str, str] | None = None,
+        files: dict[str, tuple[str, bytes, str]] | None = None,
     ) -> dict[str, Any]:
+        body: dict[str, Any] = {"data": data, "files": files} if files is not None else {"json": payload}
         response: httpx.Response
         try:
             if self._client is not None:
                 extra: dict[str, Any] = {"timeout": timeout} if timeout is not None else {}
-                response = self._client.request(method, self._method_url(telegram_method), json=payload, **extra)
+                response = self._client.request(method, self._method_url(telegram_method), **body, **extra)
             else:
                 with httpx.Client(timeout=timeout or self.timeout) as client:
-                    response = client.request(method, self._method_url(telegram_method), json=payload)
+                    response = client.request(method, self._method_url(telegram_method), **body)
         except httpx.TimeoutException as exc:
             raise TelegramDeliveryError(f"Telegram {telegram_method} timed out.", retryable=True) from exc
         except httpx.HTTPError as exc:

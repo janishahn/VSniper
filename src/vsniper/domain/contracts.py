@@ -582,6 +582,7 @@ class TelegramChat(BaseModel):
 class TelegramCallbackMessage(BaseModel):
     message_id: int
     text: str | None = None
+    caption: str | None = None
     chat: TelegramChat | None = None
 
 

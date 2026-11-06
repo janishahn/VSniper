@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import threading
+from io import BytesIO
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Callable, Literal, cast
 
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import CursorResult
@@ -24,7 +26,7 @@ from vsniper.domain.contracts import (
     TelegramUpdate,
     TelegramUpdateResult,
 )
-from vsniper.integrations.telegram.client import TelegramClient
+from vsniper.integrations.telegram.client import TelegramClient, TelegramDeliveryError
 from vsniper.integrations.telegram.service import TelegramFormatter
 from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services._mapping import (
@@ -368,9 +370,9 @@ class TelegramService:
                         session=session,
                     )
                 return outcome
-            payload_preview = self.telegram_formatter.build_alert_message(
-                candidate_to_contract(candidate), delivery.kind
-            )
+            candidate_record = candidate_to_contract(candidate)
+            payload_preview = self.telegram_formatter.build_alert_message(candidate_record, delivery.kind)
+            caption = self.telegram_formatter.build_alert_caption(candidate_record, delivery.kind)
             # The alert goes to the chat of the user who owns the listing, and nowhere else.
             chat_id = self.users.chat_for_user(session, candidate.user_id)
             if chat_id is None:
@@ -381,13 +383,24 @@ class TelegramService:
                     retryable=False,
                 )
 
+        # Network only, outside any transaction; `candidate` stays readable after the session closes.
+        cover = self._cover_jpeg(candidate)
         attempted_at = datetime.now(UTC)
+        reply_markup = self.telegram_formatter.build_feedback_reply_markup(str(delivery_id))
         try:
-            response = self.telegram_client.send_message(
-                chat_id=chat_id,
-                text=payload_preview,
-                reply_markup=self.telegram_formatter.build_feedback_reply_markup(str(delivery_id)),
-            )
+            response = None
+            if cover is not None:
+                try:
+                    response = self.telegram_client.send_photo(
+                        chat_id=chat_id, photo=cover, caption=caption, reply_markup=reply_markup
+                    )
+                except TelegramDeliveryError as exc:
+                    if exc.status_code != 400:
+                        raise
+                    # Telegram refused the photo itself; the alert still goes out as text.
+                    logger.warning("Telegram refused the cover photo for delivery %s (%s); sending text", delivery_id, exc)
+            if response is None:
+                response = self.telegram_client.send_message(chat_id=chat_id, text=payload_preview, reply_markup=reply_markup)
         except Exception as exc:
             with session_scope() as session:
                 delivery = session.get(AlertDeliveryState, delivery_id)
@@ -431,6 +444,19 @@ class TelegramService:
                 telegram_chat_id=str(response.get("chat", {}).get("id")) if response.get("chat") else None,
             )
         return "sent"
+
+    def _cover_jpeg(self, candidate: Candidate) -> bytes | None:
+        """The listing's cover photo as JPEG, or None when there is none or it can't be read."""
+        image = self.candidates.load_cover_image(candidate)
+        if image is None:
+            return None
+        try:
+            with Image.open(BytesIO(image[0])) as photo:
+                buffer = BytesIO()
+                photo.convert("RGB").save(buffer, format="JPEG", quality=88)
+        except (UnidentifiedImageError, OSError):
+            return None
+        return buffer.getvalue()
 
     def process_pending_deliveries(self, limit: int = 25) -> DeliveryProcessingResult:
         # Phase 1: claim eligible deliveries in a short transaction and commit, so the
@@ -514,23 +540,33 @@ class TelegramService:
             return
 
         message = callback_query.message
-        if message is None or message.chat is None or message.text is None or not message.text.strip():
+        # Photo alerts carry their text as a caption.
+        current_text = message.text or message.caption if message is not None else None
+        if message is None or message.chat is None or current_text is None or not current_text.strip():
             return
 
         updated_text = self.telegram_formatter.build_feedback_applied_message(
-            message_text=message.text,
+            message_text=current_text,
             verdict=result.verdict,
         )
-        if updated_text == message.text:
+        if updated_text == current_text:
             return
 
         try:
-            self.telegram_client.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-                text=updated_text,
-                reply_markup={"inline_keyboard": []},
-            )
+            if message.text is None:
+                self.telegram_client.edit_message_caption(
+                    chat_id=message.chat.id,
+                    message_id=message.message_id,
+                    caption=updated_text,
+                    reply_markup={"inline_keyboard": []},
+                )
+            else:
+                self.telegram_client.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=message.message_id,
+                    text=updated_text,
+                    reply_markup={"inline_keyboard": []},
+                )
         except Exception as exc:
             logger.warning(
                 "Failed to edit Telegram message %s in chat %s",

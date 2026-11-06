@@ -55,8 +55,10 @@ def test_process_pending_deliveries_retries_retryable_errors(monkeypatch) -> Non
     service = _build_telegram_service_without_init()
     service.telegram_formatter = SimpleNamespace(
         build_alert_message=lambda candidate, kind='alert': 'alert body',
+        build_alert_caption=lambda candidate, kind='alert': 'alert body',
         build_feedback_reply_markup=lambda delivery_id: {'inline_keyboard': [[{'callback_data': f'feedback:{delivery_id}:like'}]]},
     )
+    service.candidates = SimpleNamespace(load_cover_image=lambda candidate: None)
 
     def fail_send_message(*, chat_id: str, text: str, reply_markup: dict | None = None) -> None:
         raise TelegramDeliveryError('rate limited', retryable=True, status_code=429)
@@ -422,7 +424,7 @@ def test_reply_comment_is_saved_off_the_polling_thread_and_confirmed(monkeypatch
     assert sent == [{'chat_id': '523', 'text': '📝 Notiz gespeichert.', 'reply_markup': None}]
 
 
-def test_each_alert_goes_to_its_owners_chat_and_waits_while_that_chat_is_not_allowed(monkeypatch, tmp_path) -> None:
+def test_each_alert_goes_to_its_owners_chat_with_its_cover_and_waits_while_that_chat_is_not_allowed(monkeypatch, tmp_path) -> None:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -474,22 +476,79 @@ def test_each_alert_goes_to_its_owners_chat_and_waits_while_that_chat_is_not_all
             ))
         session.commit()
 
-    sent: list[tuple[str, str]] = []
+    from io import BytesIO
+
+    from PIL import Image
+
+    cover = BytesIO()
+    Image.new('RGB', (4, 4), 'olive').save(cover, format='WEBP')
+    sent: list[tuple[str, str, str]] = []
+
+    def send_photo(*, chat_id, photo, caption, reply_markup=None):
+        assert Image.open(BytesIO(photo)).format == 'JPEG'
+        sent.append(('photo', chat_id, caption))
+        return {'message_id': 1}
+
     service = TelegramService.__new__(TelegramService)
     service.users = UserService(SimpleNamespace(allowed_chat_ids=['523', '777']))
+    service.candidates = SimpleNamespace(
+        load_cover_image=lambda candidate: (cover.getvalue(), 'image/webp') if candidate.id == 'mine' else None
+    )
     service.telegram_formatter = SimpleNamespace(
         build_alert_message=lambda candidate, kind='alert': candidate.title,
+        build_alert_caption=lambda candidate, kind='alert': candidate.title,
         build_feedback_reply_markup=lambda delivery_id: None,
     )
     service.telegram_client = SimpleNamespace(
         bot_token='',
-        send_message=lambda *, chat_id, text, reply_markup=None: sent.append((chat_id, text)) or {'message_id': 1},
+        send_photo=send_photo,
+        send_message=lambda *, chat_id, text, reply_markup=None: sent.append(('text', chat_id, text)) or {'message_id': 2},
     )
 
     result = service.process_pending_deliveries()
 
-    assert sorted(sent) == [('523', 'mine'), ('777', 'hers')]
+    # A listing with a cover goes out as a photo; one without falls back to text.
+    assert sorted(sent) == [('photo', '523', 'mine'), ('text', '777', 'hers')]
     assert result.sent_deliveries == 2
     with factory() as session:
         removed = session.query(AlertDeliveryState).filter_by(candidate_id='removed').one()
         assert removed.status == 'pending'
+
+
+def test_a_vote_on_a_photo_alert_edits_its_caption(monkeypatch) -> None:
+    service = _build_telegram_service_without_init()
+    edits: list[dict] = []
+    service.telegram_client = SimpleNamespace(
+        edit_message_caption=lambda **kwargs: edits.append(kwargs),
+        edit_message_text=lambda **kwargs: (_ for _ in ()).throw(AssertionError('a photo has no text to edit')),
+    )
+    service.telegram_formatter = TelegramFormatter()
+    callback = TelegramUpdate.model_validate({
+        'update_id': 5,
+        'callback_query': {
+            'id': 'cb', 'data': 'feedback:3:like',
+            'message': {'message_id': 77, 'caption': 'Jeans', 'chat': {'id': 523}},
+        },
+    }).callback_query
+    result = SimpleNamespace(action='feedback_recorded', verdict='like')
+
+    service._update_feedback_message(callback, result)
+
+    assert edits[0]['caption'].startswith('Jeans\n\nDeine Bewertung: 👍')
+    assert edits[0]['reply_markup'] == {'inline_keyboard': []}
+
+
+def test_long_alert_text_is_cut_to_fit_a_photo_caption() -> None:
+    from vsniper.integrations.telegram.service import ALERT_CAPTION_MAX_CHARS
+
+    candidate = SimpleNamespace(
+        title='Weite Hose', brand='B', size='M', price_eur=20.0, url='https://www.vinted.de/items/1',
+        description='lang ' * 80,
+        score_trace=SimpleNamespace(score_10=97, threshold=0.95, decision='alert', explanation='passt ' * 200, summary=''),
+    )
+
+    caption = TelegramFormatter().build_alert_caption(candidate)
+
+    assert len(caption) <= ALERT_CAPTION_MAX_CHARS
+    assert 'lang lang' not in caption
+    assert caption.endswith('🔗 https://www.vinted.de/items/1')

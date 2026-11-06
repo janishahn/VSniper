@@ -25,9 +25,25 @@ _DECISION_LABELS = {"alert": "Treffer", "review": "Knapp daneben", "discard": "V
 _FEEDBACK_MARKER = "\n\nDeine Bewertung:"
 
 
+# Telegram captions hold 1024 characters; the vote badge added later needs the rest.
+ALERT_CAPTION_MAX_CHARS = 900
+
+
 class TelegramFormatter:
-    def build_alert_message(self, candidate: CandidateRecord, kind: str = "alert") -> str:
-        description = (candidate.description or "").strip()
+    def build_alert_caption(self, candidate: CandidateRecord, kind: str = "alert") -> str:
+        """The alert text short enough for a photo caption: the description goes first, then the
+        explanation is cut."""
+        text = self.build_alert_message(candidate, kind)
+        if len(text) <= ALERT_CAPTION_MAX_CHARS:
+            return text
+        text = self.build_alert_message(candidate, kind, include_description=False)
+        if len(text) <= ALERT_CAPTION_MAX_CHARS:
+            return text
+        body, _, link = text.rpartition("\n")
+        return body[: ALERT_CAPTION_MAX_CHARS - len(link) - 2].rstrip() + "…\n" + link
+
+    def build_alert_message(self, candidate: CandidateRecord, kind: str = "alert", *, include_description: bool = True) -> str:
+        description = (candidate.description or "").strip() if include_description else ""
         if len(description) > _DESCRIPTION_MAX_CHARS:
             boundary = description.rfind(" ", 0, _DESCRIPTION_MAX_CHARS)
             description = description[: boundary if boundary > 50 else _DESCRIPTION_MAX_CHARS].rstrip() + "…"

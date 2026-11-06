@@ -22,7 +22,6 @@ class Settings(BaseSettings):
     # Empty uses Playwright's own Chromium build; the image points this at Debian's chromium.
     vinted_browser_executable: str = Field(default="", alias="VINTED_BROWSER_EXECUTABLE")
     vinted_browser_proxy_url: str = Field(default="", alias="VINTED_BROWSER_PROXY_URL")
-    vinted_browser_timeout_seconds: int = Field(default=30, alias="VINTED_BROWSER_TIMEOUT_SECONDS")
     vinted_browser_profile_dir: Path = Field(
         default=Path("storage/browser-profile"),
         alias="VINTED_BROWSER_PROFILE_DIR",
@@ -38,18 +37,6 @@ class Settings(BaseSettings):
     upload_dir: Path = Field(default=Path("storage/uploads"), alias="UPLOAD_DIR")
     cache_dir: Path = Field(default=Path("storage/cache"), alias="CACHE_DIR")
     feedback_asset_dir: Path = Field(default=Path("storage/feedback-assets"), alias="FEEDBACK_ASSET_DIR")
-    worker_max_concurrency: int = Field(default=4, alias="WORKER_MAX_CONCURRENCY")
-    # Fallback/seed value only — the live worker reads AppSettingsState.scan_interval_seconds
-    # (editable on the Settings page) once the DB row exists.
-    scan_interval_seconds: int = Field(default=1800, alias="SCAN_INTERVAL_SECONDS")
-    # Retention: the worker prunes rows older than these (generous) windows so the SQLite file
-    # and the stats/queue scans stay bounded. Pending/processing deliveries are never pruned.
-    candidate_retention_days: int = Field(default=365, alias="CANDIDATE_RETENTION_DAYS")
-    delivery_retention_days: int = Field(default=365, alias="DELIVERY_RETENTION_DAYS")
-    ai_usage_retention_days: int = Field(default=365, alias="AI_USAGE_RETENTION_DAYS")
-    error_retention_days: int = Field(default=365, alias="ERROR_RETENTION_DAYS")
-    # How often (in worker cycles) to run the prune job; ~hourly at a 60s cycle interval.
-    prune_every_cycles: int = Field(default=60, alias="PRUNE_EVERY_CYCLES")
     # Comma-separated list of browser origins allowed to call the API. Defaults to the local
     # Vite dev server; set explicitly (e.g. the LAN host) in deployments. "*" disables the lock.
     cors_allowed_origins: str = Field(

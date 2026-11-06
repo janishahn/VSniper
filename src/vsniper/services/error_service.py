@@ -32,6 +32,7 @@ ERROR_NOTIFICATION_RETRY_DELAYS = (
 )
 ERROR_NOTIFICATION_PROCESSING_TIMEOUT = timedelta(minutes=10)
 _MAX_MESSAGE_CHARS = 4000
+_RETENTION = timedelta(days=365)
 _MAX_TRACEBACK_CHARS = 20_000
 _MAX_DETAIL_STRING_CHARS = 8000
 
@@ -399,7 +400,7 @@ class ErrorService:
         return counts
 
     def prune_old_events(self) -> int:
-        cutoff = datetime.now(UTC) - timedelta(days=self.settings.error_retention_days)
+        cutoff = datetime.now(UTC) - _RETENTION
         with session_scope() as session:
             result = session.execute(
                 delete(ErrorEvent).where(

@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 # The app serves a single German user; "today" on the dashboard means the local calendar day.
 _LOCAL_TZ = ZoneInfo("Europe/Berlin")
+_RETENTION = timedelta(days=365)
 
 
 class CandidateService:
@@ -566,13 +567,11 @@ class CandidateService:
         )
 
     def prune_old_records(self) -> dict[str, int]:
-        """Delete rows older than the configured retention windows so the SQLite file and the
+        """Delete AI usage, delivery and candidate rows older than a year so the SQLite file and the
         stats/queue scans stay bounded. Pending/processing deliveries are never pruned. Returns
         the per-table deleted-row counts for logging."""
         now = datetime.now(UTC)
-        usage_cutoff = now - timedelta(days=self.settings.ai_usage_retention_days)
-        delivery_cutoff = now - timedelta(days=self.settings.delivery_retention_days)
-        candidate_cutoff = now - timedelta(days=self.settings.candidate_retention_days)
+        usage_cutoff = delivery_cutoff = candidate_cutoff = now - _RETENTION
 
         with session_scope() as session:
             usage_deleted = session.execute(

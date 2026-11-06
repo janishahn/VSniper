@@ -9,8 +9,8 @@ services:
     # without publishing a LAN port.
     network_mode: host
     environment:
-      API_PORT: ${VSNIPER_PORT:-8010}
-      VNC_PORT: ${VSNIPER_VNC_PORT:-6080}
+      API_PORT: 8010
+      VNC_PORT: 6080
     env_file:
       - path: .env
         required: false

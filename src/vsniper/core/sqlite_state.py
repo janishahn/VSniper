@@ -64,7 +64,6 @@ def _default_settings(now: datetime) -> SettingsSnapshot:
         vision_model=runtime.openai_vision_model,
         decision_model=runtime.openai_decision_model,
         alert_threshold=95,
-        scan_interval_seconds=runtime.scan_interval_seconds,
         session_health=build_session_health(region=runtime.vinted_region),
     )
 

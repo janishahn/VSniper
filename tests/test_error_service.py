@@ -48,7 +48,6 @@ def _setup(monkeypatch, tmp_path, *, enabled: bool = False):
         vinted_cookie="put-your-vinted-cookie-here",
         telegram_bot_token="put-your-telegram-bot-token-here",
         openai_api_key="put-your-openai-api-key-here",
-        error_retention_days=365,
     )
     telegram = SimpleNamespace(bot_token="", send_message=lambda **_kwargs: {"message_id": 1})
     return ErrorService(runtime, telegram), factory

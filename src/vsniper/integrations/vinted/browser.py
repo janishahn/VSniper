@@ -16,6 +16,7 @@ _logger = logging.getLogger(__name__)
 
 # Cloudflare interstitials and DataDome's captcha iframe. Normal Vinted pages also load
 # DataDome's tag script, so "datadome" alone is not a challenge marker.
+_TIMEOUT_SECONDS = 30
 _CHALLENGE_MARKERS = (
     "just a moment",
     "cf-chl-",
@@ -104,7 +105,7 @@ class VintedBrowserClient:
                 args=["--disable-blink-features=AutomationControlled", "--window-size=1440,1000"],
                 ignore_default_args=["--enable-automation"],
                 proxy=proxy,
-                timeout=self.settings.vinted_browser_timeout_seconds * 1000,
+                timeout=_TIMEOUT_SECONDS * 1000,
             )
         except PlaywrightError as exc:
             self._discard_context()
@@ -112,7 +113,7 @@ class VintedBrowserClient:
                 "The Vinted listing browser could not start. Check the browser display and, "
                 "if configured, the proxy."
             ) from exc
-        context.set_default_timeout(self.settings.vinted_browser_timeout_seconds * 1000)
+        context.set_default_timeout(_TIMEOUT_SECONDS * 1000)
         self._context = context
         return context
 
@@ -155,7 +156,7 @@ class VintedBrowserClient:
             context.add_cookies(cookies)
 
     def _wait_for_listing_or_challenge(self, page: Page) -> str:
-        deadline = time.monotonic() + max(1, self.settings.vinted_browser_timeout_seconds)
+        deadline = time.monotonic() + _TIMEOUT_SECONDS
         while True:
             html = page.content()
             if 'property="og:title"' in html or "property='og:title'" in html:

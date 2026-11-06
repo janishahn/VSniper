@@ -151,11 +151,6 @@ def test_note_only_feedback_keeps_unknown_verdict_and_upserts_sample(monkeypatch
 
 def test_prune_old_records_drops_aged_rows_and_keeps_pending(monkeypatch, tmp_path) -> None:
     service, factory = _setup(monkeypatch, tmp_path)
-    service.settings = SimpleNamespace(
-        candidate_retention_days=365,
-        delivery_retention_days=365,
-        ai_usage_retention_days=365,
-    )
     now = datetime.now(UTC)
     old = now - timedelta(days=400)
 

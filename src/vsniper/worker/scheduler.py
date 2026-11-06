@@ -9,7 +9,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, as_completed
 from datetime import UTC, datetime, timedelta
 
-from vsniper.core.config import get_settings
 from vsniper.core.database import configure_app_logging, dispose_engine
 from vsniper.core.state import get_state
 from vsniper.domain.contracts import SearchRecord
@@ -40,6 +39,11 @@ _POLL_SECONDS = 30
 _MAINTENANCE_TICK_SECONDS = 60
 _TELEGRAM_POLL_TIMEOUT_SECONDS = 25
 _TELEGRAM_RETRY_SECONDS = 30
+_MAX_CONCURRENT_SCANS = 4
+# Maintenance ticks every _MAINTENANCE_TICK_SECONDS, so old records are pruned about hourly.
+_PRUNE_EVERY_CYCLES = 60
+# Used only when the scan interval set on the Settings page cannot be read.
+_FALLBACK_SCAN_INTERVAL_SECONDS = 1800
 
 _rotation_index = 0
 _active_scan_threads: set[threading.Thread] = set()
@@ -95,7 +99,7 @@ def cycle(interval: int) -> None:
         if not enabled:
             _logger.info("worker idle: no enabled searches")
         else:
-            max_workers = max(1, min(len(enabled), state.settings.worker_max_concurrency))
+            max_workers = max(1, min(len(enabled), _MAX_CONCURRENT_SCANS))
             pool = ThreadPoolExecutor(max_workers=max_workers)
             timed_out = False
             try:
@@ -202,9 +206,7 @@ def _run_maintenance() -> None:
         else:
             dispose_engine()
 
-    state = get_state()
-    prune_every = max(1, state.settings.prune_every_cycles)
-    if _cycle_count % prune_every == 0:
+    if _cycle_count % _PRUNE_EVERY_CYCLES == 0:
         record_heartbeat(owner=_WORKER_OWNER, cycle_count=_cycle_count, phase="prune_records")
         with worker_activity("prune_records") as active:
             if not active:
@@ -283,7 +285,7 @@ def _resolve_interval(override: int | None) -> int:
     except Exception as exc:
         _logger.warning("could not read configured scan interval; falling back to default", exc_info=True)
         _record_worker_error("resolve_scan_interval", "Could not read configured scan interval", exc)
-        return get_settings().scan_interval_seconds
+        return _FALLBACK_SCAN_INTERVAL_SECONDS
 
 
 def _run_continuous_loop(interval_override: int | None) -> None:
@@ -319,7 +321,7 @@ def _run_continuous_loop(interval_override: int | None) -> None:
         else:
             if next_scan_dispatch_at is None:
                 next_scan_dispatch_at = now
-            max_workers = max(1, get_state().settings.worker_max_concurrency)
+            max_workers = _MAX_CONCURRENT_SCANS
             now = time.monotonic()
             while now >= next_scan_dispatch_at and enabled:
                 if _active_scan_count() >= max_workers:

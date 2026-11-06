@@ -14,7 +14,6 @@ from vsniper.integrations.vinted.browser import (
 def _settings(*, proxy_url: str = "") -> SimpleNamespace:
     return SimpleNamespace(
         vinted_browser_proxy_url=proxy_url,
-        vinted_browser_timeout_seconds=1,
         vinted_browser_profile_dir=Path("/tmp/vsniper-browser-test"),
         vinted_browser_executable="",
     )

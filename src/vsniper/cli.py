@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def dev() -> None:
     """Run the API with reload and the Vite dev server; the UI proxies /api to the API."""
     api = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "vsniper.api.main:app", "--reload", "--reload-dir", "src",
+        [sys.executable, "-m", "uvicorn", "vsniper.api.dev:app", "--reload", "--reload-dir", "src",
          "--host", "127.0.0.1", "--port", "8000"],
         cwd=ROOT,
     )

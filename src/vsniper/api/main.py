@@ -27,8 +27,8 @@ async def lifespan(_app: FastAPI):
     logger.info("app state initialization started")
     get_state()
     logger.info("app state initialization finished in %.1fs", perf_counter() - started)
-    if not get_settings().run_worker:
-        logger.info("background worker disabled by RUN_WORKER=false")
+    if not _app.state.run_worker:
+        logger.info("background worker disabled for local development")
         yield
         return
     threads = scheduler.start()
@@ -39,6 +39,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="vsniper", lifespan=lifespan)
+app.state.run_worker = True
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,

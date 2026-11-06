@@ -26,6 +26,8 @@ def configure_app_logging() -> None:
         force=True,
     )
     logging.getLogger("vsniper").setLevel(level)
+    # httpx logs each request URL at INFO, and Telegram URLs contain the bot token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class Base(DeclarativeBase):

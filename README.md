@@ -44,6 +44,6 @@ uv run fast-tests   # Ruff, ty, pytest
 npm run build --prefix ui
 ```
 
-Set `RUN_WORKER=false` in a local `.env` while the deployed instance uses the same Telegram bot: Telegram delivers updates to only one poller. `uv run scan-once` runs every enabled search once, then maintenance.
+`uv run dev` runs without the background worker, so it never competes with the deployed instance for Telegram updates. `uv run scan-once` runs every enabled search once, then maintenance.
 
 To pull in changes from the original project: `git fetch upstream && git merge upstream/main`.

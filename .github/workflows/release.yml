@@ -61,7 +61,7 @@ jobs:
 
       - name: Smoke test image
         run: |
-          docker run -d --name vsniper-smoke --network host -e RUN_WORKER=false vsniper:smoke
+          docker run -d --name vsniper-smoke --network host vsniper:smoke
           for attempt in $(seq 60); do
             if curl -fsS http://127.0.0.1:8000/healthz && curl -fsS http://127.0.0.1:8000/ | grep -q '<div id="root">'; then
               break

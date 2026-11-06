@@ -1,4 +1,5 @@
-"""Vinted.de women's catalog tree (Damen = 1904), the source buckets pick categories from.
+"""Vinted.de women's and men's catalog trees (Damen = 1904, Herren = 5), the source buckets pick
+categories from.
 
 A snapshot ships with the code. Refreshing re-reads the tree that vinted.de embeds in its
 catalog page and stores it next to the other caches; that copy wins over the snapshot.
@@ -14,10 +15,10 @@ import httpx
 
 from vsniper.domain.contracts import VintedCatalogNode
 
-WOMEN_ROOT_ID = 1904
+ROOT_IDS = (1904, 5)
 CATALOG_PAGE_URL = "https://www.vinted.de/catalog/1904-women"
-_SNAPSHOT_PATH = Path(__file__).with_name("women_catalog.json")
-_OVERRIDE_NAME = "vinted_women_catalog.json"
+_SNAPSHOT_PATH = Path(__file__).with_name("catalog.json")
+_OVERRIDE_NAME = "vinted_catalog.json"
 
 
 class CatalogRefreshError(RuntimeError):
@@ -25,7 +26,7 @@ class CatalogRefreshError(RuntimeError):
 
 
 def parse_catalog_page(html: str) -> list[VintedCatalogNode]:
-    """Extract the women's subtree from the `catalogTree` JSON in a vinted.de catalog page."""
+    """Extract the Damen and Herren subtrees from the `catalogTree` JSON in a vinted.de catalog page."""
     text = html.replace('\\"', '"')
     start = text.find('"catalogTree":[')
     if start == -1:
@@ -51,10 +52,11 @@ def parse_catalog_page(html: str) -> list[VintedCatalogNode]:
         for child in raw.get("catalogs") or []:
             walk(child, int(raw["id"]), node_path)
 
-    women = next((root for root in roots if root.get("id") == WOMEN_ROOT_ID), None)
-    if women is None:
-        raise CatalogRefreshError("The Vinted catalogTree has no women's root (1904).")
-    walk(women, None, [])
+    roots_by_id = {root.get("id"): root for root in roots}
+    for root_id in ROOT_IDS:
+        if root_id not in roots_by_id:
+            raise CatalogRefreshError(f"The Vinted catalogTree has no root {root_id}.")
+        walk(roots_by_id[root_id], None, [])
     return nodes
 
 

@@ -190,6 +190,32 @@ def test_prune_old_records_drops_aged_rows_and_keeps_pending(monkeypatch, tmp_pa
         assert surviving == {"recent-pending": "pending"}
 
 
+def test_prune_drops_unrated_discards_after_two_weeks(monkeypatch, tmp_path) -> None:
+    service, factory = _setup(monkeypatch, tmp_path)
+    now = datetime.now(UTC)
+    three_weeks_ago = now - timedelta(days=21)
+
+    def _discard(candidate_id: str, *, last_seen_at: datetime, feedback: str = "unknown") -> Candidate:
+        candidate = _candidate(candidate_id, created_at=three_weeks_ago)
+        candidate.decision = "discard"
+        candidate.last_seen_at = last_seen_at
+        candidate.feedback = feedback
+        return candidate
+
+    with factory() as session:
+        session.add(Search(id="s1", user_id=1, name="Search", clothing_item="hosen", query="q", region="de", enabled=True))
+        session.add(_discard("stale", last_seen_at=three_weeks_ago))
+        session.add(_discard("still-listed", last_seen_at=now))
+        session.add(_discard("voted", last_seen_at=three_weeks_ago, feedback="dislike"))
+        session.add(_candidate("old-alert", created_at=three_weeks_ago))
+        session.commit()
+
+    assert service.prune_old_records()["candidates"] == 1
+
+    with factory() as session:
+        assert set(session.scalars(select(Candidate.id))) == {"still-listed", "voted", "old-alert"}
+
+
 def test_feedback_on_another_profiles_candidate_is_rejected(monkeypatch, tmp_path) -> None:
     import pytest
 

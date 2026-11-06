@@ -33,7 +33,7 @@ class Bucket(Base):
     key: Mapped[str] = mapped_column(String(32), primary_key=True)
     label: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    # Vinted women's catalog ids this bucket covers; searches and drafts pick from these.
+    # Vinted Damen or Herren catalog ids this bucket covers; searches and drafts pick from these.
     catalog_ids: Mapped[list[int]] = mapped_column(JSON, default=list, nullable=False)
     # Vinted sizes searched for this bucket, as [{"id": 4, "title": "M"}]; empty searches all sizes.
     sizes: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)

@@ -10,7 +10,7 @@ from vsniper.integrations.vinted.catalog import parse_catalog_page
 from vsniper.integrations.vinted.categories import CategoryFilterError, ensure_category_filter
 
 FIXTURE = Path(__file__).parent / "fixtures/vinted/de/catalog_tree.txt"
-SNAPSHOT = Path(__file__).parents[1] / "src/vsniper/integrations/vinted/women_catalog.json"
+SNAPSHOT = Path(__file__).parents[1] / "src/vsniper/integrations/vinted/catalog.json"
 
 
 def _bucket(key: str, catalog_ids: list[int]) -> BucketRecord:
@@ -25,12 +25,14 @@ def _bucket(key: str, catalog_ids: list[int]) -> BucketRecord:
     )
 
 
-def test_catalog_page_parses_to_the_women_subtree_with_paths() -> None:
+def test_catalog_page_parses_to_the_women_and_men_subtrees_with_paths() -> None:
     nodes = parse_catalog_page(FIXTURE.read_text())
     by_id = {node.id: node for node in nodes}
 
     assert nodes[0].id == 1904 and nodes[0].parent_id is None
-    assert 5 not in by_id  # the men's root is left out
+    assert by_id[5].parent_id is None
+    assert by_id[257].path == "Herren > Kleidung > Jeans"
+    assert 1193 not in by_id  # other roots such as Kinder are left out
     assert by_id[553].path == "Damen > Accessoires > Schmuck > Ringe"
     assert by_id[553].parent_id == 21
     assert [node.model_dump() for node in nodes] == json.loads(SNAPSHOT.read_text())

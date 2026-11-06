@@ -66,10 +66,11 @@ from vsniper.services.user_service import require_user
 from vsniper.services.telegram_service import TelegramService
 from vsniper.services.taste_service import TasteService
 
-# Item pages are fetched for newly judged listings only; two at a time keeps the pace modest.
-_ITEM_PAGE_CONCURRENCY = 2
+# Item pages are fetched one at a time for newly judged listings only. Without a pause Vinted
+# answers 429 after about fifteen pages.
+_ITEM_PAGE_SPACING_SECONDS = 4.5
 _CACHE_MAX_AGE_DAYS = 30
-_CACHE_MAX_SIZE_MB = 500
+_CACHE_MAX_SIZE_MB = 100
 _MANUAL_RUN_STALE_AFTER = timedelta(minutes=30)
 
 
@@ -396,12 +397,6 @@ class SearchService:
             "raw_listing": raw.get("raw_listing", raw),
         }
 
-    def _candidate_cache_path(self, candidate_id: str, *, image_index: int = 0) -> Path:
-        cache_dir = self.settings.resolve_path(self.settings.cache_dir) / "candidate-images"
-        safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in candidate_id)
-        suffix = "" if image_index == 0 else f"-{image_index + 1}"
-        return cache_dir / f"{safe_name}{suffix}.jpg"
-
     @staticmethod
     def _is_decodable_image(content: bytes) -> bool:
         try:
@@ -411,17 +406,8 @@ class SearchService:
             return False
         return True
 
-    def _download_one_image(
-        self,
-        *,
-        image_url: str,
-        cache_path: Path,
-    ) -> tuple[bytes, str, Path] | None:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        if cache_path.exists():
-            raw = cache_path.read_bytes()
-            if self._is_decodable_image(raw):
-                return raw, "image/jpeg", cache_path
+    def _download_one_image(self, *, image_url: str) -> tuple[bytes, str] | None:
+        """Photos are held in memory for judging only; an alert's cover is cached when it is sent."""
         with httpx.Client(timeout=20, follow_redirects=True) as client:
             response = client.get(image_url, headers={"User-Agent": "vsniper/0.1 (+https://local.vsniper)"})
             response.raise_for_status()
@@ -430,27 +416,16 @@ class SearchService:
             return None
         if not self._is_decodable_image(response.content):
             return None
-        tmp_path = cache_path.with_suffix(".tmp")
-        tmp_path.write_bytes(response.content)
-        tmp_path.rename(cache_path)
-        return response.content, content_type, cache_path
+        return response.content, content_type
 
     def _download_candidate_image(self, *, candidate_id: str, image_urls: list[str]) -> CandidateImageInput | None:
         if not image_urls:
             return None
         urls = image_urls[:MAX_LISTING_IMAGES]
-        cache_paths = [self._candidate_cache_path(candidate_id, image_index=i) for i in range(len(urls))]
 
-        usable: list[tuple[bytes, str, Path] | None] = [None] * len(urls)
+        usable: list[tuple[bytes, str] | None] = [None] * len(urls)
         with ThreadPoolExecutor(max_workers=len(urls)) as pool:
-            futures = {
-                pool.submit(
-                    self._download_one_image,
-                    image_url=url,
-                    cache_path=cache_paths[i],
-                ): i
-                for i, url in enumerate(urls)
-            }
+            futures = {pool.submit(self._download_one_image, image_url=url): i for i, url in enumerate(urls)}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:
@@ -461,12 +436,12 @@ class SearchService:
         results = [r for r in usable if r is not None]
         if not results:
             return None
-        primary_bytes, primary_mime, _ = results[0]
+        primary_bytes, primary_mime = results[0]
         return CandidateImageInput(
             candidate_id=candidate_id,
             image_bytes=primary_bytes,
             mime_type=primary_mime,
-            extra_image_bytes=[content for content, _, _ in results[1:]],
+            extra_image_bytes=[content for content, _ in results[1:]],
         )
 
     @staticmethod
@@ -657,29 +632,36 @@ class SearchService:
         The catalog search returns one photo and no description. A listing whose page fails
         keeps its catalog data and is still judged."""
         failures: list[VintedClientError] = []
-        with ThreadPoolExecutor(max_workers=_ITEM_PAGE_CONCURRENCY) as pool:
-            futures = [pool.submit(self.vinted_client.fetch_item_page, raw["url"]) for raw in raws]
-            for raw, future in zip(raws, futures, strict=True):
-                try:
-                    page = future.result()
-                except VintedClientError as exc:
-                    _logger.warning("item page for %s failed: %s", raw["url"], exc)
-                    failures.append(exc)
-                    continue
-                raw["description"] = page.description
-                if page.image_urls:
-                    raw["image_urls"] = page.image_urls
-                listing = raw.get("raw_listing")
-                if isinstance(listing, dict):
-                    listing.update(status=page.condition, color=page.color, material=page.material)
+        loaded = 0
+        for index, raw in enumerate(raws):
+            if index:
+                time.sleep(_ITEM_PAGE_SPACING_SECONDS)
+            try:
+                page = self.vinted_client.fetch_item_page(raw["url"])
+            except VintedClientError as exc:
+                _logger.warning("item page for %s failed: %s", raw["url"], exc)
+                failures.append(exc)
+                if exc.status_code == 429:
+                    # Asking again only extends the block; the rest are judged from catalog data.
+                    _logger.warning("Vinted rate limit hit; skipping the remaining %d item pages", len(raws) - index - 1)
+                    break
+                continue
+            loaded += 1
+            raw["description"] = page.description
+            if page.image_urls:
+                raw["image_urls"] = page.image_urls
+            listing = raw.get("raw_listing")
+            if isinstance(listing, dict):
+                listing.update(status=page.condition, color=page.color, material=page.material)
         # Most pages failing points at a parser drift or a block, which would otherwise only
         # show up as judgments made without descriptions.
         errors = getattr(self, "errors", None)
-        if failures and len(failures) * 2 >= len(raws) and errors is not None:
+        missing = len(raws) - loaded
+        if failures and missing * 2 >= len(raws) and errors is not None:
             errors.record(
                 source="search",
                 operation="fetch_item_pages",
-                summary=f"Item details missing for {len(failures)} of {len(raws)} listings",
+                summary=f"Item details missing for {missing} of {len(raws)} listings",
                 exception=failures[-1],
                 details={"search_id": search_record.id},
                 related_entity_type="search",

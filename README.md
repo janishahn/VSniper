@@ -6,7 +6,7 @@ It runs as one container: the FastAPI app serves the web UI, scans saved searche
 
 Each 👍/👎 is stored with a one-line lesson about what drove it. The taste profile rebuilds itself at most once a day, once three new verdicts have arrived (or one has waited a week); newer verdicts reach the judge as examples until then. Once a day the bot also sends the best listing that scored just under the alert threshold, since alerts alone never show what it scores too low.
 
-Clothing buckets (Schuhe, Hosen, Ringe, …) are managed on the Buckets page. Each bucket covers chosen categories from Vinted's women's catalog and the sizes to search for, and gets its own search and taste profile. A bucket with history is archived instead of deleted.
+Clothing buckets (Schuhe, Hosen, Ringe, …) are managed on the Buckets page. Each bucket covers chosen categories from Vinted's Damen or Herren catalog and the sizes to search for, and gets its own search and taste profile. A bucket with history is archived instead of deleted.
 
 Several people can share one installation. Every Telegram chat listed in `TELEGRAM_CHAT_IDS` gets its own profile with separate buckets, searches, taste and alerts; the bot ignores any other chat. The first chat in the list receives error notices. A new chat starts with a copy of the first profile's buckets. Profiles are managed on the Profiles page, and the web UI has no login, so keep it private.
 

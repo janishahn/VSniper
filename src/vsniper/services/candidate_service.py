@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import httpx
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from vsniper.core.config import Settings
@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 # The app serves a single German user; "today" on the dashboard means the local calendar day.
 _LOCAL_TZ = ZoneInfo("Europe/Berlin")
 _RETENTION = timedelta(days=365)
+# A discarded listing nobody voted on only matters while a search still returns it, so the scan
+# can skip re-judging it. Searches return the newest listings, so two weeks is plenty.
+_UNRATED_DISCARD_RETENTION = timedelta(days=14)
 
 
 class CandidateService:
@@ -587,9 +590,10 @@ class CandidateService:
         )
 
     def prune_old_records(self) -> dict[str, int]:
-        """Delete AI usage, delivery and candidate rows older than a year so the SQLite file and the
-        stats/queue scans stay bounded. Pending/processing deliveries are never pruned. Returns
-        the per-table deleted-row counts for logging."""
+        """Delete AI usage, delivery and candidate rows older than a year, and unrated discards not
+        seen for two weeks, so the SQLite file and the stats/queue scans stay bounded.
+        Pending/processing deliveries are never pruned. Returns the per-table deleted-row counts
+        for logging."""
         now = datetime.now(UTC)
         usage_cutoff = delivery_cutoff = candidate_cutoff = now - _RETENTION
 
@@ -614,8 +618,14 @@ class CandidateService:
                 ).rowcount
                 or 0
             )
+            unrated_discard = (
+                (Candidate.decision == "discard")
+                & (Candidate.feedback == "unknown")
+                & (func.coalesce(Candidate.last_seen_at, Candidate.created_at) < now - _UNRATED_DISCARD_RETENTION)
+                & Candidate.id.not_in(select(AlertDeliveryState.candidate_id))
+            )
             candidates_deleted = session.execute(
-                delete(Candidate).where(Candidate.created_at < candidate_cutoff)
+                delete(Candidate).where(or_(Candidate.created_at < candidate_cutoff, unrated_discard))
             ).rowcount
 
             snapshots_deleted = session.execute(

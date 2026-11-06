@@ -1642,5 +1642,1145 @@
 "parent_id": 146,
 "title": "Sonstiges",
 "path": "Damen > Beauty > Sonstiges"
+},
+{
+"id": 5,
+"parent_id": null,
+"title": "Herren",
+"path": "Herren"
+},
+{
+"id": 2050,
+"parent_id": 5,
+"title": "Kleidung",
+"path": "Herren > Kleidung"
+},
+{
+"id": 257,
+"parent_id": 2050,
+"title": "Jeans",
+"path": "Herren > Kleidung > Jeans"
+},
+{
+"id": 1816,
+"parent_id": 257,
+"title": "Ripped Jeans",
+"path": "Herren > Kleidung > Jeans > Ripped Jeans"
+},
+{
+"id": 1817,
+"parent_id": 257,
+"title": "Röhrenjeans",
+"path": "Herren > Kleidung > Jeans > Röhrenjeans"
+},
+{
+"id": 1818,
+"parent_id": 257,
+"title": "Jeans mit enger Passform",
+"path": "Herren > Kleidung > Jeans > Jeans mit enger Passform"
+},
+{
+"id": 1819,
+"parent_id": 257,
+"title": "Gerade geschnittene Jeans",
+"path": "Herren > Kleidung > Jeans > Gerade geschnittene Jeans"
+},
+{
+"id": 1206,
+"parent_id": 2050,
+"title": "Jacken & Mäntel",
+"path": "Herren > Kleidung > Jacken & Mäntel"
+},
+{
+"id": 2051,
+"parent_id": 1206,
+"title": "Mäntel",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel"
+},
+{
+"id": 1225,
+"parent_id": 2051,
+"title": "Dufflecoats",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Dufflecoats"
+},
+{
+"id": 2533,
+"parent_id": 2051,
+"title": "Klassische & lange Mäntel",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Klassische & lange Mäntel"
+},
+{
+"id": 1227,
+"parent_id": 2051,
+"title": "Parkas",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Parkas"
+},
+{
+"id": 1861,
+"parent_id": 2051,
+"title": "Cabans & Kurzmäntel",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Cabans & Kurzmäntel"
+},
+{
+"id": 1859,
+"parent_id": 2051,
+"title": "Regenmäntel",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Regenmäntel"
+},
+{
+"id": 1230,
+"parent_id": 2051,
+"title": "Trenchcoats",
+"path": "Herren > Kleidung > Jacken & Mäntel > Mäntel > Trenchcoats"
+},
+{
+"id": 2553,
+"parent_id": 1206,
+"title": "Westen",
+"path": "Herren > Kleidung > Jacken & Mäntel > Westen"
+},
+{
+"id": 2052,
+"parent_id": 1206,
+"title": "Jacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken"
+},
+{
+"id": 2534,
+"parent_id": 2052,
+"title": "Biker- & Racer-Jacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Biker- & Racer-Jacken"
+},
+{
+"id": 1223,
+"parent_id": 2052,
+"title": "Bomberjacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Bomberjacken"
+},
+{
+"id": 1224,
+"parent_id": 2052,
+"title": "Jeansjacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Jeansjacken"
+},
+{
+"id": 2535,
+"parent_id": 2052,
+"title": "Jacken im Military- & Utility-Stil",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Jacken im Military- & Utility-Stil"
+},
+{
+"id": 1858,
+"parent_id": 2052,
+"title": "Fleecejacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Fleecejacken"
+},
+{
+"id": 1226,
+"parent_id": 2052,
+"title": "Harrington-Jacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Harrington-Jacken"
+},
+{
+"id": 2536,
+"parent_id": 2052,
+"title": "Daunenjacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Daunenjacken"
+},
+{
+"id": 2537,
+"parent_id": 2052,
+"title": "Steppjacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Steppjacken"
+},
+{
+"id": 2538,
+"parent_id": 2052,
+"title": "Hemdjacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Hemdjacken"
+},
+{
+"id": 2539,
+"parent_id": 2052,
+"title": "Ski- & Snowboard-Jacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Ski- & Snowboard-Jacken"
+},
+{
+"id": 2550,
+"parent_id": 2052,
+"title": "Collegejacken",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Collegejacken"
+},
+{
+"id": 2551,
+"parent_id": 2052,
+"title": "Windbreaker",
+"path": "Herren > Kleidung > Jacken & Mäntel > Jacken > Windbreaker"
+},
+{
+"id": 2552,
+"parent_id": 1206,
+"title": "Ponchos",
+"path": "Herren > Kleidung > Jacken & Mäntel > Ponchos"
+},
+{
+"id": 76,
+"parent_id": 2050,
+"title": "Tops & T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts"
+},
+{
+"id": 536,
+"parent_id": 76,
+"title": "Hemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden"
+},
+{
+"id": 1801,
+"parent_id": 536,
+"title": "Karierte Hemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Karierte Hemden"
+},
+{
+"id": 1802,
+"parent_id": 536,
+"title": "Jeanshemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Jeanshemden"
+},
+{
+"id": 1803,
+"parent_id": 536,
+"title": "Einfarbige Hemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Einfarbige Hemden"
+},
+{
+"id": 1804,
+"parent_id": 536,
+"title": "Bedruckte Hemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Bedruckte Hemden"
+},
+{
+"id": 1805,
+"parent_id": 536,
+"title": "Gestreifte Hemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Gestreifte Hemden"
+},
+{
+"id": 1865,
+"parent_id": 536,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Tops & T-Shirts > Hemden > Sonstiges"
+},
+{
+"id": 77,
+"parent_id": 76,
+"title": "T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts"
+},
+{
+"id": 1806,
+"parent_id": 77,
+"title": "Einfarbige T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts > Einfarbige T-Shirts"
+},
+{
+"id": 1807,
+"parent_id": 77,
+"title": "Bedruckte T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts > Bedruckte T-Shirts"
+},
+{
+"id": 1808,
+"parent_id": 77,
+"title": "Gestreifte T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts > Gestreifte T-Shirts"
+},
+{
+"id": 1810,
+"parent_id": 77,
+"title": "Langärmelige T-Shirts",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts > Langärmelige T-Shirts"
+},
+{
+"id": 1868,
+"parent_id": 77,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Tops & T-Shirts > T-Shirts > Sonstiges"
+},
+{
+"id": 5492,
+"parent_id": 76,
+"title": "Polohemden",
+"path": "Herren > Kleidung > Tops & T-Shirts > Polohemden"
+},
+{
+"id": 560,
+"parent_id": 76,
+"title": "Westen",
+"path": "Herren > Kleidung > Tops & T-Shirts > Westen"
+},
+{
+"id": 32,
+"parent_id": 2050,
+"title": "Anzüge & Blazer",
+"path": "Herren > Kleidung > Anzüge & Blazer"
+},
+{
+"id": 1786,
+"parent_id": 32,
+"title": "Blazer",
+"path": "Herren > Kleidung > Anzüge & Blazer > Blazer"
+},
+{
+"id": 1787,
+"parent_id": 32,
+"title": "Anzughosen",
+"path": "Herren > Kleidung > Anzüge & Blazer > Anzughosen"
+},
+{
+"id": 1788,
+"parent_id": 32,
+"title": "Westen",
+"path": "Herren > Kleidung > Anzüge & Blazer > Westen"
+},
+{
+"id": 1789,
+"parent_id": 32,
+"title": "Anzugsets",
+"path": "Herren > Kleidung > Anzüge & Blazer > Anzugsets"
+},
+{
+"id": 1790,
+"parent_id": 32,
+"title": "Hochzeitsanzüge",
+"path": "Herren > Kleidung > Anzüge & Blazer > Hochzeitsanzüge"
+},
+{
+"id": 1866,
+"parent_id": 32,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Anzüge & Blazer > Sonstiges"
+},
+{
+"id": 79,
+"parent_id": 2050,
+"title": "Pullover & Sweater",
+"path": "Herren > Kleidung > Pullover & Sweater"
+},
+{
+"id": 1811,
+"parent_id": 79,
+"title": "Sweater",
+"path": "Herren > Kleidung > Pullover & Sweater > Sweater"
+},
+{
+"id": 267,
+"parent_id": 79,
+"title": "Pullis & Hoodies",
+"path": "Herren > Kleidung > Pullover & Sweater > Pullis & Hoodies"
+},
+{
+"id": 1812,
+"parent_id": 79,
+"title": "Kapuzenjacken",
+"path": "Herren > Kleidung > Pullover & Sweater > Kapuzenjacken"
+},
+{
+"id": 266,
+"parent_id": 79,
+"title": "Strickjacken",
+"path": "Herren > Kleidung > Pullover & Sweater > Strickjacken"
+},
+{
+"id": 1813,
+"parent_id": 79,
+"title": "Pullover mit Rundhalsausschnitt",
+"path": "Herren > Kleidung > Pullover & Sweater > Pullover mit Rundhalsausschnitt"
+},
+{
+"id": 264,
+"parent_id": 79,
+"title": "Pullover mit V-Ausschnitt",
+"path": "Herren > Kleidung > Pullover & Sweater > Pullover mit V-Ausschnitt"
+},
+{
+"id": 265,
+"parent_id": 79,
+"title": "Rollkragenpullover",
+"path": "Herren > Kleidung > Pullover & Sweater > Rollkragenpullover"
+},
+{
+"id": 1814,
+"parent_id": 79,
+"title": "Lange Pullover",
+"path": "Herren > Kleidung > Pullover & Sweater > Lange Pullover"
+},
+{
+"id": 1815,
+"parent_id": 79,
+"title": "Strickpullover für den Winter",
+"path": "Herren > Kleidung > Pullover & Sweater > Strickpullover für den Winter"
+},
+{
+"id": 1825,
+"parent_id": 79,
+"title": "Westen",
+"path": "Herren > Kleidung > Pullover & Sweater > Westen"
+},
+{
+"id": 268,
+"parent_id": 79,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Pullover & Sweater > Sonstiges"
+},
+{
+"id": 34,
+"parent_id": 2050,
+"title": "Hosen",
+"path": "Herren > Kleidung > Hosen"
+},
+{
+"id": 1820,
+"parent_id": 34,
+"title": "Chinos",
+"path": "Herren > Kleidung > Hosen > Chinos"
+},
+{
+"id": 1821,
+"parent_id": 34,
+"title": "Jogging-Hosen",
+"path": "Herren > Kleidung > Hosen > Jogging-Hosen"
+},
+{
+"id": 259,
+"parent_id": 34,
+"title": "Hosen mit enger Passform",
+"path": "Herren > Kleidung > Hosen > Hosen mit enger Passform"
+},
+{
+"id": 271,
+"parent_id": 34,
+"title": "Capri-Hosen",
+"path": "Herren > Kleidung > Hosen > Capri-Hosen"
+},
+{
+"id": 261,
+"parent_id": 34,
+"title": "Multifunktionshosen",
+"path": "Herren > Kleidung > Hosen > Multifunktionshosen"
+},
+{
+"id": 260,
+"parent_id": 34,
+"title": "Breit geschnittene Hosen",
+"path": "Herren > Kleidung > Hosen > Breit geschnittene Hosen"
+},
+{
+"id": 263,
+"parent_id": 34,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Hosen > Sonstiges"
+},
+{
+"id": 80,
+"parent_id": 2050,
+"title": "Shorts",
+"path": "Herren > Kleidung > Shorts"
+},
+{
+"id": 1822,
+"parent_id": 80,
+"title": "Cargoshorts",
+"path": "Herren > Kleidung > Shorts > Cargoshorts"
+},
+{
+"id": 1823,
+"parent_id": 80,
+"title": "Chino-Shorts",
+"path": "Herren > Kleidung > Shorts > Chino-Shorts"
+},
+{
+"id": 1824,
+"parent_id": 80,
+"title": "Jeansshorts",
+"path": "Herren > Kleidung > Shorts > Jeansshorts"
+},
+{
+"id": 272,
+"parent_id": 80,
+"title": "Andere Shorts",
+"path": "Herren > Kleidung > Shorts > Andere Shorts"
+},
+{
+"id": 85,
+"parent_id": 2050,
+"title": "Unterwäsche & Socken",
+"path": "Herren > Kleidung > Unterwäsche & Socken"
+},
+{
+"id": 1829,
+"parent_id": 85,
+"title": "Unterwäsche",
+"path": "Herren > Kleidung > Unterwäsche & Socken > Unterwäsche"
+},
+{
+"id": 1828,
+"parent_id": 85,
+"title": "Socken",
+"path": "Herren > Kleidung > Unterwäsche & Socken > Socken"
+},
+{
+"id": 1830,
+"parent_id": 85,
+"title": "Bademäntel",
+"path": "Herren > Kleidung > Unterwäsche & Socken > Bademäntel"
+},
+{
+"id": 1867,
+"parent_id": 85,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Unterwäsche & Socken > Sonstiges"
+},
+{
+"id": 2910,
+"parent_id": 2050,
+"title": "Nachtwäsche",
+"path": "Herren > Kleidung > Nachtwäsche"
+},
+{
+"id": 2911,
+"parent_id": 2910,
+"title": "Einteilige Pyjamas",
+"path": "Herren > Kleidung > Nachtwäsche > Einteilige Pyjamas"
+},
+{
+"id": 2912,
+"parent_id": 2910,
+"title": "Pyjamahosen",
+"path": "Herren > Kleidung > Nachtwäsche > Pyjamahosen"
+},
+{
+"id": 2913,
+"parent_id": 2910,
+"title": "Pyjamasets",
+"path": "Herren > Kleidung > Nachtwäsche > Pyjamasets"
+},
+{
+"id": 2914,
+"parent_id": 2910,
+"title": "Pyjamaoberteile",
+"path": "Herren > Kleidung > Nachtwäsche > Pyjamaoberteile"
+},
+{
+"id": 84,
+"parent_id": 2050,
+"title": "Badebekleidung",
+"path": "Herren > Kleidung > Badebekleidung"
+},
+{
+"id": 30,
+"parent_id": 2050,
+"title": "Sportartikel",
+"path": "Herren > Kleidung > Sportartikel"
+},
+{
+"id": 581,
+"parent_id": 30,
+"title": "Outdoor-Bekleidung",
+"path": "Herren > Kleidung > Sportartikel > Outdoor-Bekleidung"
+},
+{
+"id": 582,
+"parent_id": 30,
+"title": "Trainingsanzüge",
+"path": "Herren > Kleidung > Sportartikel > Trainingsanzüge"
+},
+{
+"id": 583,
+"parent_id": 30,
+"title": "Hosen",
+"path": "Herren > Kleidung > Sportartikel > Hosen"
+},
+{
+"id": 586,
+"parent_id": 30,
+"title": "Shorts",
+"path": "Herren > Kleidung > Sportartikel > Shorts"
+},
+{
+"id": 584,
+"parent_id": 30,
+"title": "Oberteile",
+"path": "Herren > Kleidung > Sportartikel > Oberteile"
+},
+{
+"id": 3267,
+"parent_id": 30,
+"title": "Trikots",
+"path": "Herren > Kleidung > Sportartikel > Trikots"
+},
+{
+"id": 585,
+"parent_id": 30,
+"title": "Pullover & Sweater",
+"path": "Herren > Kleidung > Sportartikel > Pullover & Sweater"
+},
+{
+"id": 587,
+"parent_id": 30,
+"title": "Accessoires",
+"path": "Herren > Kleidung > Sportartikel > Accessoires"
+},
+{
+"id": 1471,
+"parent_id": 587,
+"title": "Brillen",
+"path": "Herren > Kleidung > Sportartikel > Accessoires > Brillen"
+},
+{
+"id": 1474,
+"parent_id": 587,
+"title": "Handschuhe",
+"path": "Herren > Kleidung > Sportartikel > Accessoires > Handschuhe"
+},
+{
+"id": 1473,
+"parent_id": 587,
+"title": "Mützen",
+"path": "Herren > Kleidung > Sportartikel > Accessoires > Mützen"
+},
+{
+"id": 1470,
+"parent_id": 587,
+"title": "Schals",
+"path": "Herren > Kleidung > Sportartikel > Accessoires > Schals"
+},
+{
+"id": 3050,
+"parent_id": 587,
+"title": "Armbänder",
+"path": "Herren > Kleidung > Sportartikel > Accessoires > Armbänder"
+},
+{
+"id": 588,
+"parent_id": 30,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Sportartikel > Sonstiges"
+},
+{
+"id": 92,
+"parent_id": 2050,
+"title": "Spezielle Kleidung",
+"path": "Herren > Kleidung > Spezielle Kleidung"
+},
+{
+"id": 83,
+"parent_id": 2050,
+"title": "Sonstiges",
+"path": "Herren > Kleidung > Sonstiges"
+},
+{
+"id": 1231,
+"parent_id": 5,
+"title": "Schuhe",
+"path": "Herren > Schuhe"
+},
+{
+"id": 2656,
+"parent_id": 1231,
+"title": "Bootsschuhe, Loafer & Mokassins",
+"path": "Herren > Schuhe > Bootsschuhe, Loafer & Mokassins"
+},
+{
+"id": 1233,
+"parent_id": 1231,
+"title": "Stiefel",
+"path": "Herren > Schuhe > Stiefel"
+},
+{
+"id": 2661,
+"parent_id": 1233,
+"title": "Chelsea Boots & Schlupfstiefel",
+"path": "Herren > Schuhe > Stiefel > Chelsea Boots & Schlupfstiefel"
+},
+{
+"id": 2662,
+"parent_id": 1233,
+"title": "Desert Boots & Schnürstiefel",
+"path": "Herren > Schuhe > Stiefel > Desert Boots & Schnürstiefel"
+},
+{
+"id": 2663,
+"parent_id": 1233,
+"title": "Schneestiefel",
+"path": "Herren > Schuhe > Stiefel > Schneestiefel"
+},
+{
+"id": 1795,
+"parent_id": 1233,
+"title": "Gummistiefel",
+"path": "Herren > Schuhe > Stiefel > Gummistiefel"
+},
+{
+"id": 2664,
+"parent_id": 1233,
+"title": "Arbeitsstiefel",
+"path": "Herren > Schuhe > Stiefel > Arbeitsstiefel"
+},
+{
+"id": 2970,
+"parent_id": 1231,
+"title": "Clogs & Pantoletten",
+"path": "Herren > Schuhe > Clogs & Pantoletten"
+},
+{
+"id": 2657,
+"parent_id": 1231,
+"title": "Espadrilles",
+"path": "Herren > Schuhe > Espadrilles"
+},
+{
+"id": 2969,
+"parent_id": 1231,
+"title": "Zehentrenner & Slides",
+"path": "Herren > Schuhe > Zehentrenner & Slides"
+},
+{
+"id": 1238,
+"parent_id": 1231,
+"title": "Elegante Schuhe",
+"path": "Herren > Schuhe > Elegante Schuhe"
+},
+{
+"id": 2968,
+"parent_id": 1231,
+"title": "Sandalen",
+"path": "Herren > Schuhe > Sandalen"
+},
+{
+"id": 2659,
+"parent_id": 1231,
+"title": "Hausschuhe, Pantoffeln & Slipper",
+"path": "Herren > Schuhe > Hausschuhe, Pantoffeln & Slipper"
+},
+{
+"id": 1452,
+"parent_id": 1231,
+"title": "Sportschuhe",
+"path": "Herren > Schuhe > Sportschuhe"
+},
+{
+"id": 2672,
+"parent_id": 1452,
+"title": "Basketballschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Basketballschuhe"
+},
+{
+"id": 2673,
+"parent_id": 1452,
+"title": "Kletterschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Kletterschuhe"
+},
+{
+"id": 2674,
+"parent_id": 1452,
+"title": "Fahrradschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Fahrradschuhe"
+},
+{
+"id": 2675,
+"parent_id": 1452,
+"title": "Tanzschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Tanzschuhe"
+},
+{
+"id": 2676,
+"parent_id": 1452,
+"title": "Fußballschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Fußballschuhe"
+},
+{
+"id": 2677,
+"parent_id": 1452,
+"title": "Golfschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Golfschuhe"
+},
+{
+"id": 2678,
+"parent_id": 1452,
+"title": "Wander- & Trekkingschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Wander- & Trekkingschuhe"
+},
+{
+"id": 2679,
+"parent_id": 1452,
+"title": "Schlittschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Schlittschuhe"
+},
+{
+"id": 2680,
+"parent_id": 1452,
+"title": "Hallenfußballschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Hallenfußballschuhe"
+},
+{
+"id": 1467,
+"parent_id": 1452,
+"title": "Sportschuhe für drinnen",
+"path": "Herren > Schuhe > Sportschuhe > Sportschuhe für drinnen"
+},
+{
+"id": 2681,
+"parent_id": 1452,
+"title": "Motorradstiefel",
+"path": "Herren > Schuhe > Sportschuhe > Motorradstiefel"
+},
+{
+"id": 2682,
+"parent_id": 1452,
+"title": "Rollschuhe & Inlineskates",
+"path": "Herren > Schuhe > Sportschuhe > Rollschuhe & Inlineskates"
+},
+{
+"id": 1453,
+"parent_id": 1452,
+"title": "Laufschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Laufschuhe"
+},
+{
+"id": 2683,
+"parent_id": 1452,
+"title": "Skistiefel",
+"path": "Herren > Schuhe > Sportschuhe > Skistiefel"
+},
+{
+"id": 2684,
+"parent_id": 1452,
+"title": "Snowboard Boots",
+"path": "Herren > Schuhe > Sportschuhe > Snowboard Boots"
+},
+{
+"id": 2685,
+"parent_id": 1452,
+"title": "Schwimm- & Wasserschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Schwimm- & Wasserschuhe"
+},
+{
+"id": 2686,
+"parent_id": 1452,
+"title": "Tennisschuhe",
+"path": "Herren > Schuhe > Sportschuhe > Tennisschuhe"
+},
+{
+"id": 1242,
+"parent_id": 1231,
+"title": "Sneaker",
+"path": "Herren > Schuhe > Sneaker"
+},
+{
+"id": 82,
+"parent_id": 5,
+"title": "Accessoires",
+"path": "Herren > Accessoires"
+},
+{
+"id": 94,
+"parent_id": 82,
+"title": "Taschen & Rucksäcke",
+"path": "Herren > Accessoires > Taschen & Rucksäcke"
+},
+{
+"id": 246,
+"parent_id": 94,
+"title": "Rucksäcke",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Rucksäcke"
+},
+{
+"id": 2963,
+"parent_id": 94,
+"title": "Aktentaschen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Aktentaschen"
+},
+{
+"id": 1799,
+"parent_id": 94,
+"title": "Bauchtaschen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Bauchtaschen"
+},
+{
+"id": 2962,
+"parent_id": 94,
+"title": "Kleiderhüllen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Kleiderhüllen"
+},
+{
+"id": 2961,
+"parent_id": 94,
+"title": "Sporttaschen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Sporttaschen"
+},
+{
+"id": 1798,
+"parent_id": 94,
+"title": "Reisetaschen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Reisetaschen"
+},
+{
+"id": 1862,
+"parent_id": 94,
+"title": "Reisegepäck & Koffer",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Reisegepäck & Koffer"
+},
+{
+"id": 1797,
+"parent_id": 94,
+"title": "Satchels & Messenger Bags",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Satchels & Messenger Bags"
+},
+{
+"id": 247,
+"parent_id": 94,
+"title": "Umhängetaschen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Umhängetaschen"
+},
+{
+"id": 248,
+"parent_id": 94,
+"title": "Börsen",
+"path": "Herren > Accessoires > Taschen & Rucksäcke > Börsen"
+},
+{
+"id": 2960,
+"parent_id": 82,
+"title": "Bandanas & Kopftücher",
+"path": "Herren > Accessoires > Bandanas & Kopftücher"
+},
+{
+"id": 96,
+"parent_id": 82,
+"title": "Gürtel",
+"path": "Herren > Accessoires > Gürtel"
+},
+{
+"id": 2959,
+"parent_id": 82,
+"title": "Hosenträger",
+"path": "Herren > Accessoires > Hosenträger"
+},
+{
+"id": 91,
+"parent_id": 82,
+"title": "Handschuhe",
+"path": "Herren > Accessoires > Handschuhe"
+},
+{
+"id": 2958,
+"parent_id": 82,
+"title": "Halstücher",
+"path": "Herren > Accessoires > Halstücher"
+},
+{
+"id": 86,
+"parent_id": 82,
+"title": "Hüte & Mützen",
+"path": "Herren > Accessoires > Hüte & Mützen"
+},
+{
+"id": 2965,
+"parent_id": 86,
+"title": "Balaklavas",
+"path": "Herren > Accessoires > Hüte & Mützen > Balaklavas"
+},
+{
+"id": 2964,
+"parent_id": 86,
+"title": "Beanies",
+"path": "Herren > Accessoires > Hüte & Mützen > Beanies"
+},
+{
+"id": 287,
+"parent_id": 86,
+"title": "Käppis",
+"path": "Herren > Accessoires > Hüte & Mützen > Käppis"
+},
+{
+"id": 288,
+"parent_id": 86,
+"title": "Hüte",
+"path": "Herren > Accessoires > Hüte & Mützen > Hüte"
+},
+{
+"id": 95,
+"parent_id": 82,
+"title": "Schmuck",
+"path": "Herren > Accessoires > Schmuck"
+},
+{
+"id": 243,
+"parent_id": 95,
+"title": "Armbänder",
+"path": "Herren > Accessoires > Schmuck > Armbänder"
+},
+{
+"id": 2967,
+"parent_id": 95,
+"title": "Charms & Anhänger",
+"path": "Herren > Accessoires > Schmuck > Charms & Anhänger"
+},
+{
+"id": 1800,
+"parent_id": 95,
+"title": "Manschettenknöpfe",
+"path": "Herren > Accessoires > Schmuck > Manschettenknöpfe"
+},
+{
+"id": 2966,
+"parent_id": 95,
+"title": "Ohrschmuck",
+"path": "Herren > Accessoires > Schmuck > Ohrschmuck"
+},
+{
+"id": 241,
+"parent_id": 95,
+"title": "Halsketten",
+"path": "Herren > Accessoires > Schmuck > Halsketten"
+},
+{
+"id": 242,
+"parent_id": 95,
+"title": "Ringe",
+"path": "Herren > Accessoires > Schmuck > Ringe"
+},
+{
+"id": 244,
+"parent_id": 95,
+"title": "Sonstiges",
+"path": "Herren > Accessoires > Schmuck > Sonstiges"
+},
+{
+"id": 2980,
+"parent_id": 82,
+"title": "Schlüsselanhänger",
+"path": "Herren > Accessoires > Schlüsselanhänger"
+},
+{
+"id": 2957,
+"parent_id": 82,
+"title": "Einstecktücher",
+"path": "Herren > Accessoires > Einstecktücher"
+},
+{
+"id": 87,
+"parent_id": 82,
+"title": "Tücher & Schals",
+"path": "Herren > Accessoires > Tücher & Schals"
+},
+{
+"id": 98,
+"parent_id": 82,
+"title": "Sonnenbrillen",
+"path": "Herren > Accessoires > Sonnenbrillen"
+},
+{
+"id": 2956,
+"parent_id": 82,
+"title": "Krawatten & Fliegen",
+"path": "Herren > Accessoires > Krawatten & Fliegen"
+},
+{
+"id": 2981,
+"parent_id": 82,
+"title": "Regenschirme",
+"path": "Herren > Accessoires > Regenschirme"
+},
+{
+"id": 97,
+"parent_id": 82,
+"title": "Uhren",
+"path": "Herren > Accessoires > Uhren"
+},
+{
+"id": 99,
+"parent_id": 82,
+"title": "Sonstiges",
+"path": "Herren > Accessoires > Sonstiges"
+},
+{
+"id": 139,
+"parent_id": 5,
+"title": "Körper- & Gesichtspflege",
+"path": "Herren > Körper- & Gesichtspflege"
+},
+{
+"id": 143,
+"parent_id": 139,
+"title": "Gesichtspflege",
+"path": "Herren > Körper- & Gesichtspflege > Gesichtspflege"
+},
+{
+"id": 2055,
+"parent_id": 139,
+"title": "Gesichtspflege-Zubehör",
+"path": "Herren > Körper- & Gesichtspflege > Gesichtspflege-Zubehör"
+},
+{
+"id": 1826,
+"parent_id": 2055,
+"title": "Rasierzubehör",
+"path": "Herren > Körper- & Gesichtspflege > Gesichtspflege-Zubehör > Rasierzubehör"
+},
+{
+"id": 1827,
+"parent_id": 2055,
+"title": "Pflegezubehör",
+"path": "Herren > Körper- & Gesichtspflege > Gesichtspflege-Zubehör > Pflegezubehör"
+},
+{
+"id": 971,
+"parent_id": 2055,
+"title": "Andere Pflegeartikel",
+"path": "Herren > Körper- & Gesichtspflege > Gesichtspflege-Zubehör > Andere Pflegeartikel"
+},
+{
+"id": 140,
+"parent_id": 139,
+"title": "Haarpflege",
+"path": "Herren > Körper- & Gesichtspflege > Haarpflege"
+},
+{
+"id": 141,
+"parent_id": 139,
+"title": "Körperpflege",
+"path": "Herren > Körper- & Gesichtspflege > Körperpflege"
+},
+{
+"id": 142,
+"parent_id": 139,
+"title": "Hand- & Nagelpflege",
+"path": "Herren > Körper- & Gesichtspflege > Hand- & Nagelpflege"
+},
+{
+"id": 145,
+"parent_id": 139,
+"title": "Parfums",
+"path": "Herren > Körper- & Gesichtspflege > Parfums"
+},
+{
+"id": 144,
+"parent_id": 139,
+"title": "Make-up",
+"path": "Herren > Körper- & Gesichtspflege > Make-up"
+},
+{
+"id": 1863,
+"parent_id": 139,
+"title": "Sets",
+"path": "Herren > Körper- & Gesichtspflege > Sets"
+},
+{
+"id": 968,
+"parent_id": 139,
+"title": "Andere Pflegeartikel",
+"path": "Herren > Körper- & Gesichtspflege > Andere Pflegeartikel"
 }
 ]

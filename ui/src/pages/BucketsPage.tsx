@@ -44,8 +44,8 @@ function formFromBucket(bucket: BucketRecord): BucketForm {
 
 const emptyForm: BucketForm = { key: '', label: '', description: '', catalogIds: [], sizes: [] };
 
-function pathTail(path: string): string {
-  return path.split(' > ').slice(1).join(' › ');
+function pathLabel(path: string): string {
+  return path.split(' > ').join(' › ');
 }
 
 function CatalogPicker({
@@ -65,8 +65,10 @@ function CatalogPicker({
   const nodes = catalogQuery.data ?? [];
   const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const needle = filter.trim().toLowerCase();
-  // The women's root itself is too broad to be a useful bucket category.
-  const visible = nodes.filter((node) => node.parent_id !== null && (!needle || node.path.toLowerCase().includes(needle)));
+  // The Damen and Herren roots are too broad to pick; unfiltered, they head their trees.
+  const visible = nodes.filter((node) =>
+    needle ? node.parent_id !== null && node.path.toLowerCase().includes(needle) : true,
+  );
 
   const toggle = (node: VintedCatalogNode) =>
     onChange(selected.includes(node.id) ? selected.filter((id) => id !== node.id) : [...selected, node.id]);
@@ -80,7 +82,7 @@ function CatalogPicker({
           className="btn btn-sm"
           onClick={() => refreshMutation.mutate()}
           disabled={refreshMutation.isPending}
-          title="Reload the women's category tree from vinted.de"
+          title="Reload the category tree from vinted.de"
         >
           <RefreshCw size={14} aria-hidden="true" />
           {refreshMutation.isPending ? 'Refreshing…' : 'Refresh from Vinted'}
@@ -97,7 +99,7 @@ function CatalogPicker({
               onClick={() => onChange(selected.filter((value) => value !== id))}
               title={`Remove ${byId.get(id)?.path ?? id}`}
             >
-              {byId.get(id) ? pathTail(byId.get(id)!.path) : `#${id} (no longer on Vinted)`}
+              {byId.get(id) ? pathLabel(byId.get(id)!.path) : `#${id} (no longer on Vinted)`}
               <span className="chip-x" aria-hidden="true">×</span>
             </button>
           ))}
@@ -111,9 +113,11 @@ function CatalogPicker({
         placeholder="Filter, e.g. Kleider or Schmuck"
         aria-label="Filter Vinted categories"
       />
-      <div className="catalog-tree" role="group" aria-label="Vinted women's categories">
+      <div className="catalog-tree" role="group" aria-label="Vinted categories">
         {catalogQuery.isLoading ? <p className="state-line">Loading categories…</p> : null}
-        {visible.map((node) => (
+        {visible.map((node) => node.parent_id === null ? (
+          <span key={node.id} className="field">{node.title}</span>
+        ) : (
           <label
             key={node.id}
             className="catalog-node"
@@ -121,7 +125,7 @@ function CatalogPicker({
             title={node.path}
           >
             <input type="checkbox" checked={selected.includes(node.id)} onChange={() => toggle(node)} />
-            {needle ? pathTail(node.path) : node.title}
+            {needle ? pathLabel(node.path) : node.title}
           </label>
         ))}
         {!catalogQuery.isLoading && !visible.length ? <p className="state-line">No category matches.</p> : null}
@@ -235,7 +239,7 @@ function BucketModal({
     <Modal
       label={isNew ? 'New bucket' : `Edit ${bucket.label}`}
       title={isNew ? 'New bucket' : bucket.label}
-      sub="Women's items on vinted.de"
+      sub="Damen or Herren categories on vinted.de"
       onClose={onClose}
       locked={saveMutation.isPending}
       size="lg"
@@ -339,7 +343,7 @@ function BucketRow({
         <div className="chips">
           {bucket.categories.map((category) => (
             <span className="chip" key={category.id} title={category.path || undefined}>
-              {category.path ? pathTail(category.path) : `#${category.id} (no longer on Vinted)`}
+              {category.path ? pathLabel(category.path) : `#${category.id} (no longer on Vinted)`}
             </span>
           ))}
         </div>

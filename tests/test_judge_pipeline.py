@@ -36,6 +36,11 @@ from vsniper.services.search_service import SearchService
 
 
 @pytest.fixture(autouse=True)
+def _no_item_page_pause(monkeypatch):
+    monkeypatch.setattr("vsniper.services.search_service._ITEM_PAGE_SPACING_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def memo_db(monkeypatch):
     """In-memory DB so _memoized_judgments can query the candidates table.
 
@@ -206,6 +211,18 @@ def test_item_page_details_reach_the_judge_and_a_failed_page_keeps_catalog_data(
     assert downloaded["search-001:item-2"] == ["https://images.vinted.de/item-2.jpg"]
 
 
+def test_item_pages_stop_at_the_first_rate_limit() -> None:
+    service = _make_service()
+    service.errors = MagicMock()
+    service.vinted_client.fetch_item_page.side_effect = VintedSearchError("rate limited", retryable=True, status_code=429)
+    raws = [_raw("item-1"), _raw("item-2"), _raw("item-3")]
+
+    service._add_item_page_details(raws, search_record=_search())
+
+    assert service.vinted_client.fetch_item_page.call_count == 1
+    assert service.errors.record.call_args.kwargs["summary"] == "Item details missing for 3 of 3 listings"
+
+
 def test_already_judged_candidate_is_reused_not_rejudged(memo_db) -> None:
     service = _make_service()
     search = _search()
@@ -305,8 +322,7 @@ def _download_service(tmp_path: Path) -> SearchService:
 
 
 def test_download_rejects_html_error_page_with_image_content_type(tmp_path: Path) -> None:
-    # Vinted occasionally serves an HTML error body with an image/* content-type. Caching it
-    # would poison every future scan, so it must be rejected and never written to disk.
+    # Vinted occasionally serves an HTML error body with an image/* content-type.
     service = _download_service(tmp_path)
     response = MagicMock()
     response.raise_for_status.return_value = None
@@ -319,7 +335,6 @@ def test_download_rejects_html_error_page_with_image_content_type(tmp_path: Path
         result = service._download_candidate_image(candidate_id="s:item-1", image_urls=["http://x/1.jpg"])
 
     assert result is None
-    assert not service._candidate_cache_path("s:item-1").exists()
 
 
 def test_cancel_check_stops_dispatching_further_batches_but_keeps_partial_work(memo_db, monkeypatch) -> None:

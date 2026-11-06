@@ -105,7 +105,7 @@ class BucketService:
     def refresh_catalog(self) -> list[VintedCatalogNode]:
         with httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": _BROWSER_USER_AGENT}) as client:
             nodes = refresh_catalog(self._cache_dir(), client)
-        _logger.info("Vinted women's catalog refreshed nodes=%d", len(nodes))
+        _logger.info("Vinted catalog refreshed nodes=%d", len(nodes))
         return nodes
 
     def size_options(self, catalog_ids: list[int]) -> list[BucketSizeGroup]:

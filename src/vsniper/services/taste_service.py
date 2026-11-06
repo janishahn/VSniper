@@ -262,13 +262,7 @@ class TasteService:
                 created_at=now,
                 updated_at=now,
             )
-            sample.cached_image_paths = (
-                self._copy_candidate_cache(sample.id, candidate_id, len(sample.image_urls))
-                if candidate_id
-                else []
-            )
-            if not sample.cached_image_paths:
-                sample.cached_image_paths = self._cache_image_urls(sample.id, sample.image_urls)
+            sample.cached_image_paths = self._cache_image_urls(sample.id, sample.image_urls)
             session.add(sample)
             session.flush()
             return taste_sample_to_contract(sample)
@@ -299,23 +293,6 @@ class TasteService:
                 "raw_listing": normalized.get("raw_listing", normalized),
             }
             return listing, candidate.id
-
-    def _copy_candidate_cache(self, sample_id: str, candidate_id: str, image_count: int) -> list[str]:
-        cache_root = self.settings.resolve_path(self.settings.cache_dir)
-        candidate_dir = cache_root / "candidate-images"
-        target_dir = self._offer_cache_dir()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        safe_candidate_id = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in candidate_id)
-        copied: list[str] = []
-        for index in range(min(image_count, 4)):
-            source_suffix = "" if index == 0 else f"-{index + 1}"
-            source = candidate_dir / f"{safe_candidate_id}{source_suffix}.jpg"
-            if not source.exists() or not source.is_file():
-                continue
-            target = target_dir / f"{sample_id}-{index}.jpg"
-            shutil.copy2(source, target)
-            copied.append(target.relative_to(cache_root).as_posix())
-        return copied
 
     @staticmethod
     def _normalise_offer_listing_payload(raw: dict, clothing_item: ClothingItem) -> dict:

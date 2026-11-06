@@ -1255,8 +1255,10 @@ class OpenAITasteClient:
         judgment: CandidateJudgment,
         on_usage: UsageCallback | None = None,
     ) -> str:
-        """Write the one-sentence reason shown with an alert."""
-        model_name = self.settings.openai_vision_model
+        """Write the one-sentence reason shown with an alert.
+
+        Uses the cheap decision model: on real alerts its sentences matched the vision model's."""
+        model_name = self.settings.openai_decision_model
         content: list[dict[str, Any]] = [
             {
                 "type": "input_text",

@@ -106,7 +106,7 @@ def _filter_blocked_brands(raw_candidates: list[dict], blocked_brands: list[str]
 # Listings judged at once. Each judgment is one Decisions request; alerts add one explanation.
 JUDGE_CONCURRENCY = 8
 # Photos per listing sent to the decision model.
-MAX_LISTING_IMAGES = 4
+MAX_LISTING_IMAGES = 2
 
 
 _logger = logging.getLogger(__name__)

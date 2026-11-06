@@ -10,6 +10,7 @@ import pytest
 
 from vsniper.domain.contracts import SearchFilter, SearchRecord
 from vsniper.integrations.vinted.client import VintedClient, VintedListingUrlError, VintedSessionError
+from vsniper.integrations.vinted.item_page import parse_item_page
 
 FIXTURES = Path(__file__).parent / "fixtures/vinted/de"
 
@@ -164,3 +165,13 @@ def test_a_missing_listing_is_reported_as_a_bad_url() -> None:
 
     with pytest.raises(VintedListingUrlError):
         client.fetch_item_page("https://www.vinted.de/items/1-gone")
+
+
+def test_a_long_description_is_read_from_its_text_row() -> None:
+    # Vinted sends long descriptions as a separate text row and puts a reference like "$15d" in the field.
+    page = parse_item_page((FIXTURES / "item_10688581075.rsc").read_text())
+
+    assert page.title == "Lässige Jeans von American Vintage"
+    assert page.description.startswith("Lässige Wide-Leg-Jeans von American Vintage (Modell: Le Big Carrot).")
+    assert "$" not in page.description[:5]
+    assert len(page.description) > 300

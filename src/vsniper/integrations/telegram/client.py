@@ -52,7 +52,7 @@ class TelegramClient:
         payload = {
             "chat_id": chat_id,
             "text": text,
-            "disable_web_page_preview": False,
+            "link_preview_options": {"is_disabled": True},
         }
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup
@@ -117,7 +117,7 @@ class TelegramClient:
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text,
-            "disable_web_page_preview": False,
+            "link_preview_options": {"is_disabled": True},
         }
         if reply_markup is not None:
             payload["reply_markup"] = reply_markup

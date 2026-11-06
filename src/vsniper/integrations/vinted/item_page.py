@@ -3,6 +3,8 @@
 Requesting an item page with the `RSC: 1` header returns the payload the page hydrates from.
 Its sidebar `plugins` array carries the summary, attributes, description and price, and a
 `photos` array holds every listing photo, none of which the catalog search returns.
+Long strings such as the description are sent as separate text rows (`14b:T701,<text>`) and
+referenced by `"$14b"`.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from pydantic import BaseModel
 _PLUGINS_RE = re.compile(r'"plugins":(?=\[\{"data")')
 _PHOTOS_RE = re.compile(r'"photos":(?=\[\{)')
 _DECODER = json.JSONDecoder()
+_TEXT_REFERENCE_RE = re.compile(r"\$([0-9a-f]+)")
 
 
 class ItemPageError(ValueError):
@@ -40,6 +43,20 @@ def _decode_after(pattern: re.Pattern[str], text: str) -> list[Any]:
         return []
     value, _ = _DECODER.raw_decode(text, match.end())
     return value if isinstance(value, list) else []
+
+
+def _resolve_text(value: str, text: str) -> str:
+    """Follow a `$<id>` reference to its text row; the row's hex length counts UTF-8 bytes."""
+    if value.startswith("$$"):
+        return value[1:]
+    reference = _TEXT_REFERENCE_RE.fullmatch(value)
+    if reference is None:
+        return value
+    row = re.search(rf"(?:^|\n){reference.group(1)}:T([0-9a-f]+),", text)
+    if row is None:
+        raise ItemPageError(f"The Vinted item page has no text row for {value}.")
+    start = len(text[: row.end()].encode())
+    return text.encode()[start : start + int(row.group(1), 16)].decode()
 
 
 def parse_item_page(text: str) -> ItemPage:
@@ -71,7 +88,7 @@ def parse_item_page(text: str) -> ItemPage:
         condition=attributes.get("status", ""),
         color=attributes.get("color", ""),
         material=attributes.get("material", ""),
-        description=str(plugins.get("description", {}).get("description") or "").strip(),
+        description=_resolve_text(str(plugins.get("description", {}).get("description") or ""), text).strip(),
         price_eur=float(amount) if amount else None,
         image_urls=[
             photo["url"]

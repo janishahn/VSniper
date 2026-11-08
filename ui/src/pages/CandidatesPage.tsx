@@ -380,7 +380,7 @@ export function CandidatesPage() {
       : 'all';
   const stageFilter = (searchParams.get('stage') ?? 'all') as StageFilter;
   const decisionFilter = searchParams.get('decision') ?? 'all';
-  const feedbackFilter = searchParams.get('feedback') ?? 'unknown';
+  const feedbackFilter = searchParams.get('feedback') ?? 'all';
   const deliveryStatusFilter = searchParams.get('delivery_status') ?? 'all';
   const timeWindow = (searchParams.get('window') ?? '7d') as TimeWindow;
   const sort = searchParams.get('sort') ?? 'score_desc';
@@ -485,7 +485,7 @@ export function CandidatesPage() {
   const stageCounts = candidatesQuery.data.stage_counts;
   const itemCounts = candidatesQuery.data.item_counts;
   const visible = candidatesQuery.data.items;
-  const filtersNarrowed = decisionFilter !== 'all' || feedbackFilter !== 'unknown' || deliveryStatusFilter !== 'all'
+  const filtersNarrowed = decisionFilter !== 'all' || feedbackFilter !== 'all' || deliveryStatusFilter !== 'all'
     || timeWindow !== '7d' || clothingItemFilter !== 'all' || stageFilter !== 'all';
 
   return (
@@ -526,7 +526,7 @@ export function CandidatesPage() {
           </label>
           <label className="field-inline">
             <span className="visually-hidden">Feedback</span>
-            <select value={feedbackFilter} onChange={(e) => setParam('feedback', e.target.value, 'unknown')}>
+            <select value={feedbackFilter} onChange={(e) => setParam('feedback', e.target.value, 'all')}>
               {Object.entries(FEEDBACK_OPTIONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>

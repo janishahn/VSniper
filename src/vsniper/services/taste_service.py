@@ -55,6 +55,8 @@ from vsniper.services.error_service import ErrorService
 
 _IMAGE_FORMAT_SUFFIXES = {
     "JPEG": ".jpg",
+    # iPhone HDR photos are JPEGs with an embedded gain map, which Pillow reports as MPO.
+    "MPO": ".jpg",
     "PNG": ".png",
     "WEBP": ".webp",
 }

@@ -41,6 +41,13 @@ def test_wardrobe_upload_validation_rejects_non_image_bytes() -> None:
         raise AssertionError("Expected invalid image bytes to be rejected.")
 
 
+def test_wardrobe_upload_accepts_iphone_jpegs_with_an_embedded_gain_map() -> None:
+    buffer = BytesIO()
+    Image.new("RGB", (64, 48), "red").save(buffer, format="MPO", save_all=True, append_images=[Image.new("RGB", (32, 24))])
+
+    assert TasteService._validated_image_suffix(buffer.getvalue()) == ".jpg"
+
+
 def _decision_client(handler: Callable[[httpx.Request], httpx.Response]) -> OpenAITasteClient:
     return OpenAITasteClient(
         SimpleNamespace(openai_api_key="test-key", openai_decision_model="gpt-6-luna"),

@@ -78,6 +78,16 @@ function ObservationDetails({ observation }: { observation: ReferenceObservation
 
 // ─── Upload modal ─────────────────────────────────────────────────────────────
 
+// Some browsers report HEIC files with an empty type, so the extension counts too.
+const isHeic = (file: File) => /^image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
+
+async function heicToJpeg(file: File): Promise<File> {
+  // The libheif decoder is large, so it is loaded only once a HEIC photo is picked.
+  const { heicTo } = await import('heic-to');
+  const jpeg = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.9 });
+  return new File([jpeg], `${file.name.replace(/\.hei[cf]$/i, '')}.jpg`, { type: 'image/jpeg' });
+}
+
 function UploadModal({
   onClose,
   onUploadFile,
@@ -95,6 +105,7 @@ function UploadModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [converting, setConverting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Build preview object URLs from the current files and revoke them whenever the
@@ -106,12 +117,34 @@ function UploadModal({
     return () => urls.forEach((url) => URL.revokeObjectURL(url));
   }, [files]);
 
-  const absorb = (fileList: FileList | null) => {
+  const absorb = async (fileList: FileList | null) => {
     if (!fileList) return;
     const incoming = Array.from(fileList);
-    const accepted = incoming.filter((f) => f.type.startsWith('image/'));
-    const rejected = incoming.length - accepted.length;
-    setNotice(rejected > 0 ? `${rejected} non-image file${rejected > 1 ? 's were' : ' was'} skipped.` : null);
+    const images = incoming.filter((f) => f.type.startsWith('image/') || isHeic(f));
+    const rejected = incoming.length - images.length;
+    const accepted: File[] = [];
+    let unconverted = 0;
+    if (images.some(isHeic)) setConverting(true);
+    try {
+      for (const f of images) {
+        if (!isHeic(f)) {
+          accepted.push(f);
+          continue;
+        }
+        try {
+          accepted.push(await heicToJpeg(f));
+        } catch {
+          unconverted += 1;
+        }
+      }
+    } finally {
+      setConverting(false);
+    }
+    const notices = [
+      rejected > 0 ? `${rejected} non-image file${rejected > 1 ? 's were' : ' was'} skipped.` : '',
+      unconverted > 0 ? `${unconverted} HEIC photo${unconverted > 1 ? 's' : ''} could not be converted.` : '',
+    ].filter(Boolean);
+    setNotice(notices.length ? notices.join(' ') : null);
     // Append to the existing selection, de-duping by name + size so re-picking the same file is a no-op.
     setFiles((prev) => {
       const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
@@ -151,8 +184,10 @@ function UploadModal({
       footer={(
         <>
           <button type="button" className="btn" onClick={onClose} disabled={submitting}>Cancel</button>
-          <button type="button" className="btn btn-primary" onClick={submit} disabled={!files.length || submitting}>
-            {submitting
+          <button type="button" className="btn btn-primary" onClick={submit} disabled={!files.length || submitting || converting}>
+            {converting
+              ? 'Converting HEIC…'
+              : submitting
               ? `Uploading… ${files.length} left`
               : files.length > 1 ? `Upload ${files.length} photos` : 'Upload photo'}
           </button>
@@ -172,7 +207,7 @@ function UploadModal({
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           multiple
           hidden
           onChange={(e) => absorb(e.target.files)}

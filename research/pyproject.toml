@@ -1,0 +1,21 @@
+[project]
+name = "mnv3-exp"
+version = "0"
+requires-python = "==3.12.*"
+dependencies = [
+    "torch",
+    "torchvision",
+    "timm",
+    "open_clip_torch",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "scipy",
+    "pillow",
+    "onnx",
+    "onnxruntime",
+    "httpx",
+    "transformers>=5.23.0",
+    "sentencepiece>=0.2.3",
+    "protobuf>=7.36.2",
+]

@@ -45,3 +45,8 @@ pics_of_clothes_i_like/
 # Prompt-iteration experiment outputs
 scripts/out_*.json
 scripts/grid_*.jpg
+
+# Research experiments: data, model weights and environments stay local
+research/data/
+research/*.onnx
+research/popos_bench/covers/

@@ -61,12 +61,17 @@ BLOCKS = {
 }
 
 
-def fit_fold(X, train, held, neg, pool, w_dis, C):
+def fit_head(X, train, neg, w_dis=5.0, C=10.0):
+    """The taste head: likes against random listings `neg`, with the dislikes in `train` counted `w_dis` times."""
     pos, dis = train[y[train] == 1], train[y[train] == 0] if w_dis else train[:0]
     Xt = np.vstack([X[pos], X[dis], X[neg]])
     yt = np.r_[np.ones(len(pos)), np.zeros(len(dis) + len(neg))]
     w = np.r_[np.ones(len(pos)), np.full(len(dis), w_dis), np.ones(len(neg))]
-    head = LogisticRegression(C=C, class_weight="balanced", max_iter=2000).fit(Xt, yt, sample_weight=w)
+    return LogisticRegression(C=C, class_weight="balanced", max_iter=2000).fit(Xt, yt, sample_weight=w)
+
+
+def fit_fold(X, train, held, neg, pool, w_dis, C):
+    head = fit_head(X, train, neg, w_dis, C)
     ranked = np.sort(head.decision_function(X[pool]))
     above = len(ranked) - np.searchsorted(ranked, head.decision_function(X[held]), side="left")
     return held, (above + 1) / (len(ranked) + 1)

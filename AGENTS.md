@@ -1,6 +1,6 @@
 # VSniper: Agent Instructions
 
-VSniper scans saved Vinted searches, judges listings against a learned taste profile with vision models, and sends strong matches to Telegram. It runs as one self-hosted container, down to a Raspberry Pi 4B. It is a fork of `jonas-klesen/VSniper`, which is the `upstream` remote.
+VSniper scans saved Vinted searches, judges listings against a learned taste profile with vision models, and sends strong matches to Telegram. It runs as one self-hosted container on `pop-os`, an x86-64 Linux host (AMD Ryzen 7 4700U, 8 cores, 14 GB RAM, no dedicated GPU). It is a fork of `jonas-klesen/VSniper`, which is the `upstream` remote.
 
 ## Project Rules
 

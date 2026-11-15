@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     upload_dir: Path = Field(default=Path("storage/uploads"), alias="UPLOAD_DIR")
     cache_dir: Path = Field(default=Path("storage/cache"), alias="CACHE_DIR")
     feedback_asset_dir: Path = Field(default=Path("storage/feedback-assets"), alias="FEEDBACK_ASSET_DIR")
+    # Holds the image encoder for the local taste head; the head stays off while the file is absent.
+    model_dir: Path = Field(default=Path("storage/models"), alias="MODEL_DIR")
     # Comma-separated list of browser origins allowed to call the API. Defaults to the local
     # Vite dev server; set explicitly (e.g. the LAN host) in deployments. "*" disables the lock.
     cors_allowed_origins: str = Field(
@@ -63,5 +65,6 @@ def get_settings() -> Settings:
     settings.resolve_path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     settings.resolve_path(settings.cache_dir).mkdir(parents=True, exist_ok=True)
     settings.resolve_path(settings.feedback_asset_dir).mkdir(parents=True, exist_ok=True)
+    settings.resolve_path(settings.model_dir).mkdir(parents=True, exist_ok=True)
     settings.resolve_path(settings.sqlite_path).parent.mkdir(parents=True, exist_ok=True)
     return settings

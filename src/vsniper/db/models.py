@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from vsniper.core.database import Base
@@ -112,6 +112,38 @@ class Candidate(Base):
 
     search: Mapped[Search] = relationship(back_populates="candidates")
     alert_deliveries: Mapped[list["AlertDeliveryState"]] = relationship(back_populates="candidate")
+
+
+class ListingEmbedding(Base):
+    """A candidate's cover photo as an image-encoder vector, with the local taste head's score for it."""
+
+    __tablename__ = "listing_embeddings"
+
+    candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.id", ondelete="CASCADE"), primary_key=True)
+    encoder: Mapped[str] = mapped_column(String(64), nullable=False)
+    # float16 values; empty when the cover is gone or cannot be decoded.
+    vector: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # The bucket head's output when the listing was embedded; it is not rescored when the head
+    # is retrained. Empty while the bucket has no head.
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    head_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+class TasteHeadState(Base):
+    """The local taste head of one bucket: a small model over listing embeddings, trained on verdicts."""
+
+    __tablename__ = "taste_heads"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    clothing_item: Mapped[str] = mapped_column(String(32), primary_key=True)
+    encoder: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    weights: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Verdicts with an embedding at training time; a different count means the head is stale.
+    like_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    dislike_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    trained_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AlertDeliveryState(Base):

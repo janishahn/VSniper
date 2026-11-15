@@ -28,6 +28,12 @@ tailscale serve --bg --https=8443 http://127.0.0.1:8010
 
 Releases publish `ghcr.io/janishahn/vsniper` for amd64 and arm64. A host that tracks the latest release only needs `docker compose pull && docker compose up -d`.
 
+## Local taste head (experimental)
+
+A small local model that learns from the same 👍/👎 verdicts. It embeds each listing's cover photo with an image encoder and scores it with one head per bucket. For now it only stores vectors and scores next to the candidates; it does not send or change alerts.
+
+It stays off until the encoder file `fashion-siglip.int8.onnx` is in `/data/models`. `research/export_onnx.py fashion-siglip` produces the file.
+
 ## Release
 
 1. Bump `version` in `pyproject.toml`, run `uv lock`, and merge that to `main`.

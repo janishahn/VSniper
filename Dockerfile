@@ -22,7 +22,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SQLITE_PATH=/data/sqlite/vsniper.db \
     UPLOAD_DIR=/data/uploads \
     CACHE_DIR=/data/cache \
-    FEEDBACK_ASSET_DIR=/data/feedback-assets
+    FEEDBACK_ASSET_DIR=/data/feedback-assets \
+    MODEL_DIR=/data/models
 
 COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /bin/uv
 

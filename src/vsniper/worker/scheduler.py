@@ -14,6 +14,7 @@ from vsniper.core.state import get_state
 from vsniper.domain.contracts import SearchRecord
 from vsniper.services.maintenance_service import worker_activity
 from vsniper.services.operations_service import record_heartbeat
+from vsniper.worker.jobs.local_taste import run_once as local_taste_once
 from vsniper.worker.jobs.process_deliveries import run_once as process_deliveries_once
 from vsniper.worker.jobs.prune_records import run_once as prune_records_once
 from vsniper.worker.jobs.scan_search import run_once
@@ -39,6 +40,8 @@ _MAINTENANCE_TICK_SECONDS = 60
 _TELEGRAM_POLL_TIMEOUT_SECONDS = 25
 _TELEGRAM_RETRY_SECONDS = 30
 _MAX_CONCURRENT_SCANS = 4
+# After a failed pass of the local taste head, e.g. an unreadable encoder file.
+_LOCAL_TASTE_RETRY_SECONDS = 600
 # Maintenance ticks every _MAINTENANCE_TICK_SECONDS, so old records are pruned about hourly.
 _PRUNE_EVERY_CYCLES = 60
 # Used only when the scan interval set on the Settings page cannot be read.
@@ -342,13 +345,33 @@ def _run_telegram_poller() -> None:
         offset = next_offset
 
 
+def _run_local_taste() -> None:
+    """Embeds listing covers for the local taste head, on its own thread so alert deliveries
+    never wait for it. Idle until the encoder file is in the model directory."""
+    while not _stop.is_set():
+        settled = 0
+        idle_seconds = _POLL_SECONDS
+        if get_state().local_taste.installed:
+            with worker_activity("local_taste") as active:
+                if active:
+                    try:
+                        settled = local_taste_once()
+                    except Exception as exc:
+                        _logger.warning("local taste pass failed", exc_info=True)
+                        _record_worker_error("local_taste", "Local taste pass failed", exc)
+                        idle_seconds = _LOCAL_TASTE_RETRY_SECONDS
+        if not settled:
+            _stop.wait(idle_seconds)
+
+
 def start() -> list[threading.Thread]:
-    """Start the scan loop and Telegram poller as daemon threads of the app process."""
+    """Start the scan loop, Telegram poller and local taste embedder as daemon threads of the app process."""
     _stop.clear()
     get_state().searches.release_interrupted_runs()
     threads = [
         threading.Thread(target=_run_continuous_loop, args=(None,), name="scan-loop", daemon=True),
         threading.Thread(target=_run_telegram_poller, name="telegram-poller", daemon=True),
+        threading.Thread(target=_run_local_taste, name="local-taste", daemon=True),
     ]
     for thread in threads:
         thread.start()

@@ -28,6 +28,7 @@ from vsniper.integrations.vinted.client import VintedClient
 from vsniper.services._mapping import integration_configuration
 from vsniper.services.candidate_service import CandidateService
 from vsniper.services.error_service import ErrorService
+from vsniper.services.local_taste_service import LocalTasteService
 from vsniper.services.bucket_service import BucketService, bucket_records
 from vsniper.services.search_defaults import canonical_search_values
 from vsniper.services.search_service import SearchService
@@ -98,6 +99,7 @@ class AppState:
             self.settings, self.vinted_client, self.taste_client, self.taste, self.telegram, self.errors
         )
         self.telegram.set_search_draft_applier(self.searches.apply_generated_search_drafts)
+        self.local_taste = LocalTasteService(self.settings)
         logger.info("AppState services initialized in %.1fs", perf_counter() - started)
 
     def reload(self) -> None:

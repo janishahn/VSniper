@@ -114,7 +114,7 @@ MAX_LISTING_IMAGES = 2
 SCREEN_PASS_PROBABILITY = 0.5
 
 
-def _search_card_photo_url(raw: dict) -> str | None:
+def search_card_photo_url(raw: dict) -> str | None:
     """The cover at search-card size (about 310 px), which costs fewer tokens than the full photo."""
     listing = raw.get("raw_listing")
     photo = listing.get("photo") if isinstance(listing, dict) else None
@@ -699,7 +699,7 @@ class SearchService:
             futures = [
                 (cid, raw, pool.submit(self._download_one_image, image_url=url))
                 for cid, raw in selected
-                if (url := _search_card_photo_url(raw))
+                if (url := search_card_photo_url(raw))
             ]
             for cid, raw, future in futures:
                 try:
